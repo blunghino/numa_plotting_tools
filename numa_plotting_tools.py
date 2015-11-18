@@ -3,6 +3,20 @@ import csv
 import numpy as np
 
 
+def find_first_repeated(x, first_not=False):
+    """
+    return the index of the first reappearence of the first element in array x
+    if first_not instead return the index of the first appearance of a different
+    value from the first element in array x
+    """
+    val = x[0]
+    for i, z in enumerate(x[1:]):
+        if not first_not and z == val:
+            return i
+        elif first_not and z != val:
+            return i
+
+
 class NumaCsvData:
     """
     class to hold data stored in a single Numa output csv file
@@ -19,9 +33,12 @@ class NumaCsvData:
         ## reshap inferring shape from data
         if xcoord_header in self.headers and ycoord_header in self.headers:
             x = getattr(self, xcoord_header)
-            y = getattr(self, ycoord_header)
-            self.nelx = np.unique(x, return_counts=True)[1]
-            self.nely = np.unique(y, return_counts=True)[1]
+            self.nelx = 1 + find_first_repeated(x, first_not=False)
+            self.nely = len(x) / self.nelx
+            for att in self.headers:
+                temp = getattr(self, att).reshape((self.nely, self.nelx))
+                setattr(self, att, temp)
+
 
 
     def _get_headers(self, csv_file_name):
@@ -31,7 +48,8 @@ class NumaCsvData:
         """
         with open(csv_file_name, 'r') as file:
             rdr = csv.reader(file)
-            r0 = next(rdr)
+            #TODO: check that header can be set as an attribute?
+            r0 = [x.lstrip() for x in next(rdr)]
         return r0
 
     def _load_csv_data(self, csv_file_name):
