@@ -15,7 +15,7 @@ def saveobj(obj, path):
     if path[-4:] != '.pkl':
         path += '.pkl'
     try:
-        ## Open file and dump dictionary
+        ## Open file and dump object
         with open(path, 'wb') as output:
             pickle.dump(obj, output)
             output.close()
@@ -30,7 +30,7 @@ def openobj(path):
     ## Add correct file extension to path passed with function call
     if path[-4:] != '.pkl':
         path += '.pkl'
-    ## open file and load dictionary
+    ## open file and load object
     with open(path, 'rb') as picklein:
         obj = pickle.load(picklein)
         picklein.close()
@@ -56,16 +56,20 @@ def find_first_repeated(x, first_not=False):
         elif first_not and z != val:
             return i
 
-def plot_shore_max_timeseries(nrds, figsize=(12,12)):
+def plot_shore_max_timeseries(nrds, figsize=(12,9)):
     marker = 's.x^voH' * 5
     color = 'rbgmk' * 7
     fig = plt.figure(figsize=figsize)
+    ax = plt.subplot(111)
     for i, nrd in enumerate(nrds):
         fig = nrd.plot_shore_max_timeseries(
             figure_instance=fig,
             color=color[i],
             marker=marker[i]
         )
+    ax.legend(loc=2)
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Max shore position [m]')
     return fig
 
 
@@ -158,11 +162,13 @@ class NumaRunData:
             t_restart,
             run_dir_path,
             shore_file_name='OUT_SHORE_data.dat',
-            load_csv_data=True
+            load_csv_data=True,
+            name=None,
     ):
         self.t_f = t_f
         self.t_restart = t_restart
         self.run_dir_path = run_dir_path
+        self.name = name if name is not None else run_dir_path.split('-')[-1]
         self.n_outputs = int(t_f / t_restart)
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
@@ -208,8 +214,9 @@ class NumaRunData:
     ):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
-        plt.plot(self.t, self.shore_max, c=color, marker=marker,
-                 figure=figure_instance)
+        p = plt.plot(self.t, self.shore_max, c=color, marker=marker,
+                 figure=figure_instance, mew=0)[0]
+        p.set_label(self.name)
         return figure_instance
 
 
