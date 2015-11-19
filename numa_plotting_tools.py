@@ -56,6 +56,19 @@ def find_first_repeated(x, first_not=False):
         elif first_not and z != val:
             return i
 
+def plot_shore_max_timeseries(nrds, figsize=(12,12)):
+    marker = 's.x^voH' * 5
+    color = 'rbgmk' * 7
+    fig = plt.figure(figsize=figsize)
+    for i, nrd in enumerate(nrds):
+        fig = nrd.plot_shore_max_timeseries(
+            figure_instance=fig,
+            color=color[i],
+            marker=marker[i]
+        )
+    return fig
+
+
 class NumaCsvData:
     """
     class to hold data stored in a single Numa output csv file
@@ -130,7 +143,7 @@ class NumaCsvData:
     def plot_surface(self, figsize=(12,7), height='height'):
         H = getattr(self, height)
         fig = plt.figure(figsize=figsize)
-        
+
         return fig
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
@@ -139,31 +152,66 @@ class NumaRunData:
     """
     class to hold all data associated with a Numa model run
     """
-
     def __init__(
             self,
             t_f,
             t_restart,
             run_dir_path,
-            shore_file_name='OUT_SHORE_data.dat'
+            shore_file_name='OUT_SHORE_data.dat',
+            load_csv_data=True
     ):
         self.t_f = t_f
         self.t_restart = t_restart
         self.run_dir_path = run_dir_path
-        self.shore_file_name = shore_file_name
-        csv_file_root = os.path.split(run_dir_path)[1]
-        n_outputs = int(t_f / t_restart)
-        csv_file_names = [
-            '{}_{:03d}.csv'.format(csv_file_root, i) for i in range(n_outputs)
-        ]
-        self.data_obj_list = self._load_numa_csv_data(csv_file_names)
+        self.n_outputs = int(t_f / t_restart)
+        if load_csv_data:
+            csv_file_root = os.path.split(run_dir_path)[1]
+            csv_file_names = ['{}_{:03d}.csv'.format(
+                csv_file_root,i) for i in range(self.n_outputs)]
+            self.data_obj_list = self._load_numa_csv_data(csv_file_names)
+        self.t, self.shore_max = self._load_shore_data(shore_file_name)
 
     def _load_numa_csv_data(self, csv_file_names):
+        """
+        load data from model output csvs
+        :param csv_file_names:
+        :return:
+        """
         data_obj_list = []
         for csv_file_name in csv_file_names:
             csv_file_path = os.path.join(self.run_dir_path, csv_file_name)
             data_obj_list.append(NumaCsvData(csv_file_path))
         return data_obj_list
+
+    def _load_shore_data(self, shore_file_name):
+        """
+        load shore max timeseries from model run shore line max output data file
+        :param shore_file_name:
+        :return:
+        """
+        t = []
+        shore_max = []
+        shore_file_path = os.path.join(self.run_dir_path, shore_file_name)
+        with open(shore_file_path, 'r') as file:
+            for i, r in enumerate(file):
+                r = r.strip().lstrip().split()
+                t.append(float(r[0]))
+                shore_max.append(float(r[1]))
+        return np.asarray(t), np.asarray(shore_max)
+
+    def plot_shore_max_timeseries(
+            self,
+            figsize=(12,7),
+            figure_instance=None,
+            color='k',
+            marker='.'
+    ):
+        if figure_instance is None:
+            figure_instance = plt.figure(figsize=figsize)
+        plt.plot(self.t, self.shore_max, c=color, marker=marker,
+                 figure=figure_instance)
+        return figure_instance
+
 
     def __repr__(self):
         return "NumaRunData({}, {}, {})".format(
