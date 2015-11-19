@@ -1,8 +1,40 @@
 import csv
 import os
+import pickle
+import warnings
 
 import numpy as np
+from matplotlib import pyplot as plt
 
+
+def saveobj(obj, path):
+    """
+    pickle an object.
+    """
+    ## Add correct file extension to path passed with function call
+    if path[-4:] != '.pkl':
+        path += '.pkl'
+    try:
+        ## Open file and dump dictionary
+        with open(path, 'wb') as output:
+            pickle.dump(obj, output)
+            output.close()
+        return path
+    except FileNotFoundError:
+        raise
+
+def openobj(path):
+    """
+    unpickle an object.
+    """
+    ## Add correct file extension to path passed with function call
+    if path[-4:] != '.pkl':
+        path += '.pkl'
+    ## open file and load dictionary
+    with open(path, 'rb') as picklein:
+        obj = pickle.load(picklein)
+        picklein.close()
+    return obj
 
 def get_run_dirs():
     """
@@ -29,42 +61,79 @@ class NumaCsvData:
     class to hold data stored in a single Numa output csv file
     """
 
-    def __init__(self, csv_file_name, xcoord_header='xcoord',
+    def __init__(self, csv_file_path, xcoord_header='xcoord',
                  ycoord_header='ycoord'):
         ## load data
-        self.csv_file_name = csv_file_name
-        self.headers = self._get_headers(csv_file_name)
-        self.data = self._load_csv_data(csv_file_name)
+        self.csv_file_path = csv_file_path
+        self.headers = self._get_headers(csv_file_path)
+        self.data = self._load_csv_data(csv_file_path)
         for j, att in enumerate(self.headers):
             setattr(self, att, self.data[:,j])
         ## reshap inferring shape from data
         if xcoord_header in self.headers and ycoord_header in self.headers:
+            self.headers.remove(xcoord_header)
+            self.headers.remove(ycoord_header)
             x = getattr(self, xcoord_header)
             self.nelx = 1 + find_first_repeated(x, first_not=False)
             self.nely = len(x) / self.nelx
+            self.y = getattr(self, ycoord_header).reshape((self.nely,self.nelx))
+            self.x = x.reshape((self.nely,self.nelx))
             for att in self.headers:
-                temp = getattr(self, att).reshape((self.nely, self.nelx))
+                temp = getattr(self, att).reshape((self.nely,self.nelx))
                 setattr(self, att, temp)
+        else:
+            ## can't detect x and/or y coord data
+            raise warnings.warning(
+                'NO X and/or Y data found using headers {} and {} \n{}'.format(
+                    xcoord_header,
+                    ycoord_header,
+                    csv_file_path
+                )
+            )
 
-    def _get_headers(self, csv_file_name):
+    def _get_headers(self, csv_file_path):
         """
-        read the first row of file `csv_file_name` and return a list of the
+        read the first row of file `csv_file_path` and return a list of the
         headers in that row
         """
-        with open(csv_file_name, 'r') as file:
+        with open(csv_file_path, 'r') as file:
             rdr = csv.reader(file)
             #TODO: check that header can be set as an attribute?
             r0 = [x.lstrip() for x in next(rdr)]
         return r0
 
-    def _load_csv_data(self, csv_file_name):
+    def _load_csv_data(self, csv_file_path):
         """
         load csv data using numpy
         """
-        return np.loadtxt(csv_file_name, skiprows=1)
+        return np.loadtxt(csv_file_path, skiprows=1)
 
+    def plot_velocity(self, figsize=(12,7), uvelo='uvelo', vvelo='vvelo'):
+        """
+        quiver plot of velocities
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        fig = plt.figure(figsize=figsize)
+        plt.quiver(self.x, self.y, U, V)
+        return fig
+
+    def plot_height(self, figsize=(12,7), height='height'):
+        """
+        pcolor plot of height
+        """
+        H = getattr(self, height)
+        fig = plt.figure(figsize=figsize)
+        plt.pcolor(self.x, self.y, H)
+        return fig
+
+    def plot_surface(self, figsize=(12,7), height='height'):
+        H = getattr(self, height)
+        fig = plt.figure(figsize=figsize)
+        
+        return fig
     def __repr__(self):
-        return "NumaCsvData({})".format(self.csv_file_name)
+        return "NumaCsvData({})".format(self.csv_file_path)
 
 class NumaRunData:
     """
