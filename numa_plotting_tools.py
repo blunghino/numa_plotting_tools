@@ -1,6 +1,14 @@
 import csv
+import os
 
 import numpy as np
+
+
+def get_run_dirs():
+    """
+    returns list of all dir names in curdir`
+    """
+    return [x[0] for x in os.walk(os.curdir) if x[0] != '.']
 
 
 def find_first_repeated(x, first_not=False):
@@ -15,7 +23,6 @@ def find_first_repeated(x, first_not=False):
             return i
         elif first_not and z != val:
             return i
-
 
 class NumaCsvData:
     """
@@ -39,8 +46,6 @@ class NumaCsvData:
                 temp = getattr(self, att).reshape((self.nely, self.nelx))
                 setattr(self, att, temp)
 
-
-
     def _get_headers(self, csv_file_name):
         """
         read the first row of file `csv_file_name` and return a list of the
@@ -58,7 +63,6 @@ class NumaCsvData:
         """
         return np.loadtxt(csv_file_name, skiprows=1)
 
-
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_name)
 
@@ -67,24 +71,34 @@ class NumaRunData:
     class to hold all data associated with a Numa model run
     """
 
-    def __init__(self, t_f, t_restart, csv_file_root, shore_file_name):
+    def __init__(
+            self,
+            t_f,
+            t_restart,
+            run_dir_path,
+            shore_file_name='OUT_SHORE_data.dat'
+    ):
         self.t_f = t_f
         self.t_restart = t_restart
-        self.csv_file_root = csv_file_root
+        self.run_dir_path = run_dir_path
         self.shore_file_name = shore_file_name
-        # determine n csv files from t_f, t_restart
+        csv_file_root = os.path.split(run_dir_path)[1]
+        n_outputs = int(t_f / t_restart)
+        csv_file_names = [
+            '{}_{:03d}.csv'.format(csv_file_root, i) for i in range(n_outputs)
+        ]
+        self.data_obj_list = self._load_numa_csv_data(csv_file_names)
 
-        # loop through csv files and load each file
-        pass
-
-    def load_numa_csv(self, csv_file_path):
-        # initialize a NumaCsvData object
-        pass
+    def _load_numa_csv_data(self, csv_file_names):
+        data_obj_list = []
+        for csv_file_name in csv_file_names:
+            csv_file_path = os.path.join(self.run_dir_path, csv_file_name)
+            data_obj_list.append(NumaCsvData(csv_file_path))
+        return data_obj_list
 
     def __repr__(self):
-        return "NumaRunData({}, {}, {}, {})".format(
+        return "NumaRunData({}, {}, {})".format(
             self.t_f,
             self.t_restart,
-            self.csv_file_root,
-            self.shore_file_name,
+            self.run_dir_path
         )
