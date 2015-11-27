@@ -5,6 +5,9 @@ import warnings
 
 import numpy as np
 from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.animation
+import matplotlib as mpl
 
 
 def saveobj(obj, path):
@@ -56,9 +59,19 @@ def find_first_repeated(x, first_not=False):
         elif first_not and z != val:
             return i
 
-def plot_shore_max_timeseries(nrds, figsize=(12,9)):
-    marker = 's.x^voH' * 5
-    color = 'rbgmk' * 7
+def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis'):
+    """
+    call the NumaRunData.plot_shore_max method for a list of NumaRunData objects
+    plot all lines on one matplotlib.figure.Figure instance
+    """
+    ## set up color map and markers
+    n = len(nrds)
+    cmap_vals = np.linspace(0, 255, n, dtype=int)
+    cmap = plt.get_cmap(colormap)
+    color = [cmap(val) for val in cmap_vals]
+    marker = 'sx^voH'
+    marker *= int(np.ceil(n/len(marker)))
+    ## initialize figure instance
     fig = plt.figure(figsize=figsize)
     ax = plt.subplot(111)
     for i, nrd in enumerate(nrds):
@@ -70,6 +83,7 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9)):
     ax.legend(loc=2)
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Max shore position [m]')
+    ax.set_xlim(right=nrd.t_f)
     return fig
 
 
@@ -144,11 +158,35 @@ class NumaCsvData:
         plt.pcolor(self.x, self.y, H)
         return fig
 
-    def plot_surface(self, figsize=(12,7), height='height'):
-        H = getattr(self, height)
-        fig = plt.figure(figsize=figsize)
+    def plot_velocity_streamlines(self, figsize=(12,7), return_fig=True,
+                                  uvelo='uvelo', vvelo='vvelo'):
+        """
+        streamline plot of velocity
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        if return_fig:
+            fig = plt.figure(figsize=figsize)
+            p = plt.streamplot(self.x, self.y, U, V)
+            return fig
+        else:
+            p = plt.streamplot(self.x, self.y, U, V)
+            return p
 
-        return fig
+    def plot_height_3D(self, figsize=(12,7), return_fig=True,
+                       height='height', cmap='jet'):
+        H = getattr(self, height)
+        colormap = plt.get_cmap(cmap)
+        if return_fig:
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_subplot(111, projection='3d')
+            p = ax.plot_surface(self.x, self.y, H, cmap=colormap)
+            return fig
+        else:
+            p = plt.plot_surface(self.x, self.y, H, cmap=colormap)
+            return p
+
+
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
 
@@ -173,7 +211,7 @@ class NumaRunData:
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
             csv_file_names = ['{}_{:03d}.csv'.format(
-                csv_file_root,i) for i in range(self.n_outputs)]
+                csv_file_root, i) for i in range(self.n_outputs)]
             self.data_obj_list = self._load_numa_csv_data(csv_file_names)
         self.t, self.shore_max = self._load_shore_data(shore_file_name)
 
@@ -204,6 +242,36 @@ class NumaRunData:
                 t.append(float(r[0]))
                 shore_max.append(float(r[1]))
         return np.asarray(t), np.asarray(shore_max)
+
+    def _animate_height_3D_helper(self, height='height', cmap='jet'):
+        """
+        returns iterable of plots from NumaCsvData.plot_height_3D
+        to be used by NumaRunData.animate_height_3D
+        """
+        iterable = [ob.plot_height_3D(
+            height=height,
+            return_fig=False,
+            cmap=cmap
+        ) for ob in self.data_obj_list]
+        return iterable
+
+    def animate_height_3D(self, save_file_path=None, figsize=(12,7),
+                          height='height', cmap='jet'):
+        """
+        create animation of NumaCsvData.plot_height_3D
+        """
+        if save_file_path is None:
+            save_file_path = os.path.join(self.run_dir_path, '.mp4')
+        fig = plt.figure(figsize=figsize)
+        ax = plt.subplot(111, projection='3d')
+        ani = mpl.animation.FuncAnimation(
+            fig,
+            self._animate_height_3D_helper,
+            frames=self.n_outputs,
+            fargs={'height': height, 'cmap': cmap}
+        )
+        ani.save(save_file_path)
+
 
     def plot_shore_max_timeseries(
             self,
