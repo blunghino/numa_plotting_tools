@@ -172,6 +172,20 @@ class NumaCsvData:
             p = plt.streamplot(self.x, self.y, U, V)
             return p
 
+    def plot_bathy_3D(self, figsize=(14,7), bathy='bathymetry'):
+        """
+        plot height and bathymetry as 2 3D surfaces
+        """
+        B = getattr(self, bathy)
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        ax.set_zlabel('z [m]')
+        ax.invert_xaxis()
+        ax.plot_surface(self.x, self.y, B)
+        return fig
+
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
                        height='height', bathy='bathymetry', clims=None,
                        cmap='jet'):
@@ -194,17 +208,17 @@ class NumaCsvData:
             ax.set_ylabel('y [m]')
             ax.set_zlabel('z [m]')
             ax.invert_xaxis()
+            ax.plot_surface(self.x, self.y, B)
         else:
             ax = ax_instance
-        p1 = ax.plot_surface(self.x, self.y, H, cmap=colormap,
+        p = ax.plot_surface(self.x, self.y, H, cmap=colormap,
                              vmin=vmin, vmax=vmax)
-        p2 = ax.plot_surface(self.x, self.y, B)
         if return_fig:
             cb = fig.colorbar(p1, shrink=.7)
             cb.set_label('Height [m]')
             return fig
         else:
-            return p1, p2
+            return [p]
 
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
@@ -265,20 +279,14 @@ class NumaRunData:
         create animation of NumaCsvData.plot_height_3D
         """
         if save_file_path is None:
-            save_file_path = self.run_dir_path[:-1] + '.mp4'
+            save_file_path = self.run_dir_path + '.mp4'
         ob0 = self.data_obj_list[0]
         H = getattr(ob0, height)
         clims = (H.min(), H.max())
-        fig = ob0.plot_height_3D(
-            return_fig=True,
-            figsize=figsize,
-            height=height,
-            bathy=bathy,
-            clims=clims,
-            cmap=cmap
-        )
+        fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy)
         fig.suptitle(os.path.split(self.run_dir_path)[-1])
         ax = fig.get_axes()[0]
+        # create list of drawables to pass to animation
         list_plots = [ob.plot_height_3D(
             return_fig=False,
             ax_instance=ax,
@@ -287,12 +295,10 @@ class NumaRunData:
             clims=clims,
             cmap=cmap
         ) for ob in self.data_obj_list]
-        ani = mpl.animation.ArtistAnimation(
-            fig,
-            list_plots,
-            interval=interval,
-        )
-        ani.save(save_file_path, dpi=180)
+        cb = fig.colorbar(list_plots[0][0])
+        cb.set_label('Height [m]')
+        ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
+        ani.save(save_file_path, dpi=300)
 
     def plot_energy_somehow(self):
         pass
