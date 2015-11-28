@@ -81,9 +81,9 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis'):
             marker=marker[i]
         )
     ax.legend(loc=2)
-    ax.set_xlabel('Time [s]')
-    ax.set_ylabel('Max shore position [m]')
-    ax.set_xlim(right=nrd.t_f)
+    ax.set_ylabel('Time [s]')
+    ax.set_xlabel('Max shore position [m]')
+    ax.set_ylim(top=nrd.t_f)
     return fig
 
 
@@ -214,7 +214,7 @@ class NumaCsvData:
         p = ax.plot_surface(self.x, self.y, H, cmap=colormap,
                              vmin=vmin, vmax=vmax)
         if return_fig:
-            cb = fig.colorbar(p1, shrink=.7)
+            cb = fig.colorbar(p, shrink=.7)
             cb.set_label('Height [m]')
             return fig
         else:
@@ -300,8 +300,29 @@ class NumaRunData:
         ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
         ani.save(save_file_path, dpi=300)
 
-    def plot_energy_somehow(self):
-        pass
+    def plot_max_energy_distance_time(self, figsize=(12,7),
+                                      uvelo='uvelo', vvelo='vvelo'):
+        """
+        x axis time y axis distance marker size magnitude for maximum energy
+        of wave
+        """
+        time = np.linspace(0, self.t_f, self.n_outputs)
+        energy = []
+        distance = []
+        for ob in self.data_obj_list:
+            U = getattr(ob, uvelo)
+            V = getattr(ob, vvelo)
+            E = 0.5 * (U**2 + V**2)
+            ind = np.argmax(E)
+            energy.append(E.flatten()[ind])
+            distance.append(ob.x.flatten()[ind])
+        fig = plt.figure(figsize=figsize)
+        p = plt.plot(time, energy, label=self.name)
+        # plt.scatter(time, distance, s=energy)
+        plt.xlabel('time [s]')
+        plt.ylabel('distance [m]')
+        plt.legend()
+        return fig
 
     def plot_shore_max_timeseries(
             self,
@@ -312,7 +333,7 @@ class NumaRunData:
     ):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
-        p = plt.plot(self.t, self.shore_max, c=color, marker=marker,
+        p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
                  figure=figure_instance, mew=0)[0]
         p.set_label(self.name)
         return figure_instance
