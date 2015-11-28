@@ -173,7 +173,7 @@ class NumaCsvData:
             p = plt.streamplot(self.x, self.y, U, V)
             return p
 
-    def plot_height_3D(self, figsize=(12,7), return_fig=True,
+    def plot_height_3D(self, figsize=(12,7), return_fig=True, ax_instance=None,
                        height='height', cmap='jet'):
         H = getattr(self, height)
         colormap = plt.get_cmap(cmap)
@@ -183,7 +183,7 @@ class NumaCsvData:
             p = ax.plot_surface(self.x, self.y, H, cmap=colormap)
             return fig
         else:
-            p = plt.plot_surface(self.x, self.y, H, cmap=colormap)
+            p = ax_instance.plot_surface(self.x, self.y, H, cmap=colormap)
             return p
 
 
@@ -243,20 +243,8 @@ class NumaRunData:
                 shore_max.append(float(r[1]))
         return np.asarray(t), np.asarray(shore_max)
 
-    def _animate_height_3D_helper(self, height='height', cmap='jet'):
-        """
-        returns iterable of plots from NumaCsvData.plot_height_3D
-        to be used by NumaRunData.animate_height_3D
-        """
-        iterable = [ob.plot_height_3D(
-            height=height,
-            return_fig=False,
-            cmap=cmap
-        ) for ob in self.data_obj_list]
-        return iterable
-
     def animate_height_3D(self, save_file_path=None, figsize=(12,7),
-                          height='height', cmap='jet'):
+                          height='height', cmap='jet', interval=200):
         """
         create animation of NumaCsvData.plot_height_3D
         """
@@ -264,14 +252,22 @@ class NumaRunData:
             save_file_path = os.path.join(self.run_dir_path, '.mp4')
         fig = plt.figure(figsize=figsize)
         ax = plt.subplot(111, projection='3d')
-        ani = mpl.animation.FuncAnimation(
+        list_plots = [[ob.plot_height_3D(
+            return_fig=False,
+            ax_instance=ax,
+            height=height,
+            cmap=cmap
+        )] for ob in self.data_obj_list]
+        ani = mpl.animation.ArtistAnimation(
             fig,
-            self._animate_height_3D_helper,
-            frames=self.n_outputs,
-            fargs={'height': height, 'cmap': cmap}
+            list_plots,
+            interval=interval,
         )
         ani.save(save_file_path)
 
+
+    def plot_energy_somehow(self):
+        help!
 
     def plot_shore_max_timeseries(
             self,
