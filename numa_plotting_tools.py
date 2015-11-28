@@ -129,7 +129,6 @@ class NumaCsvData:
         """
         with open(csv_file_path, 'r') as file:
             rdr = csv.reader(file)
-            #TODO: check that header can be set as an attribute?
             r0 = [x.lstrip() for x in next(rdr)]
         return r0
 
@@ -173,19 +172,39 @@ class NumaCsvData:
             p = plt.streamplot(self.x, self.y, U, V)
             return p
 
-    def plot_height_3D(self, figsize=(12,7), return_fig=True, ax_instance=None,
-                       height='height', cmap='jet'):
+    def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
+                       height='height', bathy='bathymetry', clims=None,
+                       cmap='jet'):
+        """
+        plot height and bathymetry as 2 3D surfaces
+        """
         H = getattr(self, height)
+        B = getattr(self, bathy)
         colormap = plt.get_cmap(cmap)
+        if clims is not None:
+            vmin = clims[0]
+            vmax = clims[1]
+        else:
+            vmin = H.min()
+            vmax = H.max()
         if return_fig:
             fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(111, projection='3d')
-            p = ax.plot_surface(self.x, self.y, H, cmap=colormap)
+            ax.set_xlabel('x [m]')
+            ax.set_ylabel('y [m]')
+            ax.set_zlabel('z [m]')
+            ax.invert_xaxis()
+        else:
+            ax = ax_instance
+        p1 = ax.plot_surface(self.x, self.y, H, cmap=colormap,
+                             vmin=vmin, vmax=vmax)
+        p2 = ax.plot_surface(self.x, self.y, B)
+        if return_fig:
+            cb = fig.colorbar(p1, shrink=.7)
+            cb.set_label('Height [m]')
             return fig
         else:
-            p = ax_instance.plot_surface(self.x, self.y, H, cmap=colormap)
-            return p
-
+            return p1, p2
 
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
@@ -218,8 +237,6 @@ class NumaRunData:
     def _load_numa_csv_data(self, csv_file_names):
         """
         load data from model output csvs
-        :param csv_file_names:
-        :return:
         """
         data_obj_list = []
         for csv_file_name in csv_file_names:
@@ -230,8 +247,6 @@ class NumaRunData:
     def _load_shore_data(self, shore_file_name):
         """
         load shore max timeseries from model run shore line max output data file
-        :param shore_file_name:
-        :return:
         """
         t = []
         shore_max = []
@@ -243,31 +258,44 @@ class NumaRunData:
                 shore_max.append(float(r[1]))
         return np.asarray(t), np.asarray(shore_max)
 
-    def animate_height_3D(self, save_file_path=None, figsize=(12,7),
-                          height='height', cmap='jet', interval=200):
+    def animate_height_3D(self, save_file_path=None, figsize=(14,7),
+                          height='height', cmap='jet', bathy='bathymetry',
+                          interval=100):
         """
         create animation of NumaCsvData.plot_height_3D
         """
         if save_file_path is None:
-            save_file_path = os.path.join(self.run_dir_path, '.mp4')
-        fig = plt.figure(figsize=figsize)
-        ax = plt.subplot(111, projection='3d')
-        list_plots = [[ob.plot_height_3D(
+            save_file_path = self.run_dir_path[:-1] + '.mp4'
+        ob0 = self.data_obj_list[0]
+        H = getattr(ob0, height)
+        clims = (H.min(), H.max())
+        fig = ob0.plot_height_3D(
+            return_fig=True,
+            figsize=figsize,
+            height=height,
+            bathy=bathy,
+            clims=clims,
+            cmap=cmap
+        )
+        fig.suptitle(os.path.split(self.run_dir_path)[-1])
+        ax = fig.get_axes()[0]
+        list_plots = [ob.plot_height_3D(
             return_fig=False,
             ax_instance=ax,
             height=height,
+            bathy=bathy,
+            clims=clims,
             cmap=cmap
-        )] for ob in self.data_obj_list]
+        ) for ob in self.data_obj_list]
         ani = mpl.animation.ArtistAnimation(
             fig,
             list_plots,
             interval=interval,
         )
-        ani.save(save_file_path)
-
+        ani.save(save_file_path, dpi=180)
 
     def plot_energy_somehow(self):
-        help!
+        pass
 
     def plot_shore_max_timeseries(
             self,
