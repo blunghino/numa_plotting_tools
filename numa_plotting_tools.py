@@ -172,23 +172,32 @@ class NumaCsvData:
             p = plt.streamplot(self.x, self.y, U, V)
             return p
 
-    def plot_kinetic_energy(self, figsize=(12,7), cmap='jet',
+    def plot_kinetic_energy(self, figsize=(12,7), cmap='jet', xmin=0,
                             uvelo='uvelo', vvelo='vvelo'):
         """
         pcolor plot of kinetic energy
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
+        if xmin:
+            ind = self.x[0,:].searchsorted(xmin)
+            U = U[:,ind:]
+            V = V[:,ind:]
+            X = self.x[:,ind:]
+            Y = self.y[:,ind:]
+        else:
+            X = self.x
+            Y = self.y
         Ek = 0.5 * (U**2 + V**2)
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(self.x, self.y, Ek, cmap=cmap)
+        plt.pcolor(X, Y, Ek, cmap=cmap)
         cbar = plt.colorbar()
         cbar.set_label('Kinetic Energy [m^2/s^2]')
         plt.xlabel('x [m]')
         plt.ylabel('y [m]')
         return fig
 
-    def plot_energy(self, figsize=(12,7), cmap='jet',
+    def plot_energy(self, figsize=(12,7), cmap='jet', xmin=0,
                     height='height', uvelo='uvelo', vvelo='vvelo'):
         """
         pcolor plot of total energy
@@ -196,12 +205,22 @@ class NumaCsvData:
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
         H = getattr(self, height)
+        if xmin:
+            ind = self.x[0,:].searchsorted(xmin)
+            U = U[:,ind:]
+            V = V[:,ind:]
+            H = H[:,ind:]
+            X = self.x[:,ind:]
+            Y = self.y[:,ind:]
+        else:
+            X = self.x
+            Y = self.y
         g = 9.81
         Ek = 0.5 * (U**2 + V**2)
         Ep = g * H
         E = Ek + Ep
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(self.x, self.y, E, cmap=cmap)
+        plt.pcolor(X, Y, E, cmap=cmap)
         cbar = plt.colorbar()
         cbar.set_label('Energy [m^2/s^2]')
         plt.xlabel('x [m]')
