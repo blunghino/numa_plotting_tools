@@ -172,6 +172,42 @@ class NumaCsvData:
             p = plt.streamplot(self.x, self.y, U, V)
             return p
 
+    def plot_kinetic_energy(self, figsize=(12,7), cmap='jet',
+                            uvelo='uvelo', vvelo='vvelo'):
+        """
+        pcolor plot of kinetic energy
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        Ek = 0.5 * (U**2 + V**2)
+        fig = plt.figure(figsize=figsize)
+        plt.pcolor(self.x, self.y, Ek, cmap=cmap)
+        cbar = plt.colorbar()
+        cbar.set_label('Kinetic Energy [m^2/s^2]')
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        return fig
+
+    def plot_energy(self, figsize=(12,7), cmap='jet',
+                    height='height', uvelo='uvelo', vvelo='vvelo'):
+        """
+        pcolor plot of total energy
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        H = getattr(self, height)
+        g = 9.81
+        Ek = 0.5 * (U**2 + V**2)
+        Ep = g * H
+        E = Ek + Ep
+        fig = plt.figure(figsize=figsize)
+        plt.pcolor(self.x, self.y, E, cmap=cmap)
+        cbar = plt.colorbar()
+        cbar.set_label('Energy [m^2/s^2]')
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        return fig
+
     def plot_bathy_3D(self, figsize=(14,7), bathy='bathymetry'):
         """
         plot height and bathymetry as 2 3D surfaces
@@ -316,12 +352,14 @@ class NumaRunData:
             ind = np.argmax(E)
             energy.append(E.flatten()[ind])
             distance.append(ob.x.flatten()[ind])
+        energy = np.asarray(energy)
         fig = plt.figure(figsize=figsize)
-        p = plt.plot(time, energy, label=self.name)
-        # plt.scatter(time, distance, s=energy)
+        plt.plot(time, distance)
+        plt.scatter(time, distance, s=energy/10, label=self.name)
         plt.xlabel('time [s]')
         plt.ylabel('distance [m]')
-        plt.legend()
+        leg = plt.legend(scatterpoints=1)
+        leg.legendHandles[0]._sizes = [30]
         return fig
 
     def plot_shore_max_timeseries(
