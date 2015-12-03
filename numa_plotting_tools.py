@@ -10,6 +10,10 @@ import matplotlib.animation
 import matplotlib as mpl
 
 
+## set font to times new roman
+mpl.rcParams['font.family'] = 'serif'
+mpl.rcParams['font.serif'] = 'Times New Roman'
+
 def saveobj(obj, path):
     """
     pickle an object.
@@ -59,7 +63,8 @@ def find_first_repeated(x, first_not=False):
         elif first_not and z != val:
             return i
 
-def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis'):
+def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis',
+                              legend_title=None, legend_position=2):
     """
     call the NumaRunData.plot_shore_max method for a list of NumaRunData objects
     plot all lines on one matplotlib.figure.Figure instance
@@ -71,6 +76,9 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis'):
     color = [cmap(val) for val in cmap_vals]
     marker = 'sx^voH'
     marker *= int(np.ceil(n/len(marker)))
+    ## sort input arguments by value
+    inds = np.argsort([n.get_sort_val('name', int) for n in nrds])
+    nrds = np.asarray(nrds)[inds]
     ## initialize figure instance
     fig = plt.figure(figsize=figsize)
     ax = plt.subplot(111)
@@ -80,7 +88,7 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis'):
             color=color[i],
             marker=marker[i]
         )
-    ax.legend(loc=2)
+    ax.legend(loc=legend_position, title=legend_title)
     ax.set_ylabel('Time [s]')
     ax.set_xlabel('Max shore position [m]')
     ax.set_ylim(top=nrd.t_f)
@@ -173,22 +181,27 @@ class NumaCsvData:
             return p
 
     def plot_kinetic_energy(self, figsize=(12,7), cmap='jet', xmin=0,
-                            uvelo='uvelo', vvelo='vvelo'):
+                            uvelo='uvelo', vvelo='vvelo', height='height',
+                            bathy='bathymetry'):
         """
         pcolor plot of kinetic energy
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
+        H = getattr(self, height)
+        B = getattr(self, bathy)
         if xmin:
             ind = self.x[0,:].searchsorted(xmin)
             U = U[:,ind:]
             V = V[:,ind:]
+            H = H[:,ind:]
+            B = B[:,ind:]
             X = self.x[:,ind:]
             Y = self.y[:,ind:]
         else:
             X = self.x
             Y = self.y
-        Ek = 0.5 * (U**2 + V**2)
+        Ek = 0.5 * (H - B) * (U**2 + V**2)
         fig = plt.figure(figsize=figsize)
         plt.pcolor(X, Y, Ek, cmap=cmap)
         cbar = plt.colorbar()
@@ -198,13 +211,15 @@ class NumaCsvData:
         return fig
 
     def plot_energy(self, figsize=(12,7), cmap='jet', xmin=0,
-                    height='height', uvelo='uvelo', vvelo='vvelo'):
+                    height='height', bathy='bathymetry',
+                    uvelo='uvelo', vvelo='vvelo'):
         """
         pcolor plot of total energy
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
         H = getattr(self, height)
+        B = getattr(self, bathy)
         if xmin:
             ind = self.x[0,:].searchsorted(xmin)
             U = U[:,ind:]
@@ -216,7 +231,7 @@ class NumaCsvData:
             X = self.x
             Y = self.y
         g = 9.81
-        Ek = 0.5 * (U**2 + V**2)
+        Ek = 0.5 * (H - B) * (U**2 + V**2)
         Ep = g * H
         E = Ek + Ep
         fig = plt.figure(figsize=figsize)
@@ -290,11 +305,19 @@ class NumaRunData:
             shore_file_name='OUT_SHORE_data.dat',
             load_csv_data=True,
             name=None,
+            sort_val=None,
     ):
         self.t_f = t_f
         self.t_restart = t_restart
         self.run_dir_path = run_dir_path
-        self.name = name if name is not None else run_dir_path.split('-')[-1]
+        ## useful name for object
+        if name is not None:
+            self.name = name
+        else:
+            self.name = run_dir_path.split('-')[-1]
+        ## value on which to sort in a sequence of NumaRunData objects
+        self.sort_val = sort_val
+        ## number of NumaCsvData files associated with object
         self.n_outputs = int(t_f / t_restart)
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
@@ -326,6 +349,15 @@ class NumaRunData:
                 t.append(float(r[0]))
                 shore_max.append(float(r[1]))
         return np.asarray(t), np.asarray(shore_max)
+
+    def get_sort_val(self, sort_att='sort_val', sort_type=None):
+        try:
+            sort_val = getattr(self, sort_att)
+        except AttributeError:
+            sort_val = None
+        if callable(sort_type):
+            sort_val = sort_type(sort_val)
+        return sort_val
 
     def animate_height_3D(self, save_file_path=None, figsize=(14,7),
                           height='height', cmap='jet', bathy='bathymetry',
@@ -392,7 +424,7 @@ class NumaRunData:
             figure_instance = plt.figure(figsize=figsize)
         p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
                  figure=figure_instance, mew=0)[0]
-        p.set_label(self.name)
+        p.set_label("{}".format(self.name))
         return figure_instance
 
 
