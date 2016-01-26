@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 import pickle
 import warnings
 
@@ -63,8 +64,66 @@ def find_first_repeated(x, first_not=False):
         elif first_not and z != val:
             return i
 
+def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
+                                spacing='dist', function="get_kinetic_energy",
+                                y_label="",
+                                colormap='viridis', regex_string=None):
+    """
+    plot data values specified in kwarg function at location x_coord in
+    run, plot by spacing found using regex_string
+    """
+    ## set up color map and markers
+    n = len(nrds)
+    cmap_vals = np.linspace(0, 255, n, dtype=int)
+    cmap = plt.get_cmap(colormap)
+    color = [cmap(val) for val in cmap_vals]
+    marker = 'Hs^Dvo'
+    marker *= int(np.ceil(n/len(marker)))
+    ## sort input arguments by value
+    inds = np.argsort([n.get_sort_val('name', int) for n in nrds])
+    nrds = np.asarray(nrds)[inds]
+    hands, labs = [], []
+    max_x, min_x = 0, -1
+    fig = plt.figure(figsize=(18,8))
+    ax = plt.subplot(121)
+    ## loop over NumaRunData objects
+    for i, nrd in enumerate(nrds):
+        ## call function to calc y value
+        y_val = getattr(nrd, function)(x_coord, y_coord, plot_max)
+        ## get spacing vals from run_dir_path attribute
+        re_obj = re.compile('\d+')
+        m = re_obj.findall(nrd.run_dir_path)
+        m = np.asarray(m, dtype=float)
+        ## choose which spacing characteristic to plot
+        if spacing == "dist":
+            x_val = np.sqrt(m[1]**2 + m[2]**2)
+            x_label_prefix = "Total "
+        elif spacing == "dx":
+            x_val = m[1]
+            x_label_prefix = "Alongshore "
+        elif spacing == "dy":
+            x_val = m[2]
+            x_label_prefix = "Crossshore "
+        p, = plt.plot(x_val, y_val,
+                color=color[i],
+                marker=marker[i],
+            )  
+        if x_val > max_x:
+            max_x = x_val
+        elif x_val < min_x or min_x < 0:
+            min_x = x_val
+        hands.append(p)  
+        labs.append(nrd.legend_label(regex_string=regex_string))
+    plt.xlim(left=min_x-(0.1*max_x), right=1.1*max_x)
+    plt.title("x = {}".format(x_coord))
+    plt.xlabel("{}distance between obstacle centers [m]".format(x_label_prefix))
+    plt.ylabel(y_label)
+    fig.legend(hands, labs, loc=5, numpoints=1, ncol=2)
+    return fig
+
 def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis',
-                              legend_title=None, legend_position=2):
+                              legend_title=None, legend_position=2, 
+                              regex_string=None):
     """
     call the NumaRunData.plot_shore_max method for a list of NumaRunData objects
     plot all lines on one matplotlib.figure.Figure instance
@@ -74,7 +133,7 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis',
     cmap_vals = np.linspace(0, 255, n, dtype=int)
     cmap = plt.get_cmap(colormap)
     color = [cmap(val) for val in cmap_vals]
-    marker = 'sx^voH'
+    marker = 'Hs^Dvo'
     marker *= int(np.ceil(n/len(marker)))
     ## sort input arguments by value
     inds = np.argsort([n.get_sort_val('name', int) for n in nrds])
@@ -86,7 +145,8 @@ def plot_shore_max_timeseries(nrds, figsize=(12,9), colormap='viridis',
         fig = nrd.plot_shore_max_timeseries(
             figure_instance=fig,
             color=color[i],
-            marker=marker[i]
+            marker=marker[i],
+            regex_string=regex_string
         )
     ax.legend(loc=legend_position, title=legend_title)
     ax.set_ylabel('Time [s]')
@@ -166,21 +226,31 @@ class NumaCsvData:
         return fig
 
     def plot_velocity_streamlines(self, figsize=(12,7), return_fig=True,
-                                  uvelo='uvelo', vvelo='vvelo'):
+                                  xmin=0, uvelo='uvelo', vvelo='vvelo'):
         """
         streamline plot of velocity
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
+        if xmin:
+            ind = self.x[0,:].searchsorted(xmin)
+            U = U[:,ind:]
+            V = V[:,ind:]
+            X = self.x[:,ind:]
+            Y = self.y[:,ind:]
+        else:
+            X = self.x
+            Y = self.y
+        speed = np.sqrt(U**2 + V**2)
         if return_fig:
             fig = plt.figure(figsize=figsize)
-            p = plt.streamplot(self.x, self.y, U, V)
+            p = plt.streamplot(X, Y, U, V, color=speed)
             return fig
         else:
-            p = plt.streamplot(self.x, self.y, U, V)
+            p = plt.streamplot(X, Y, U, V, color=speed)
             return p
 
-    def plot_kinetic_energy(self, figsize=(12,7), cmap='jet', xmin=0,
+    def plot_kinetic_energy(self, figsize=(12,7), cmap='viridis', xmin=0,
                             uvelo='uvelo', vvelo='vvelo', height='height',
                             bathy='bathymetry'):
         """
@@ -210,7 +280,7 @@ class NumaCsvData:
         plt.ylabel('y [m]')
         return fig
 
-    def plot_energy(self, figsize=(12,7), cmap='jet', xmin=0,
+    def plot_energy(self, figsize=(12,7), cmap='viridis', xmin=0,
                     height='height', bathy='bathymetry',
                     uvelo='uvelo', vvelo='vvelo'):
         """
@@ -242,7 +312,7 @@ class NumaCsvData:
         plt.ylabel('y [m]')
         return fig
 
-    def plot_bathy_3D(self, figsize=(14,7), bathy='bathymetry'):
+    def plot_bathy_3D(self, figsize=(14,7), bathy='bathymetry', cmap='viridis'):
         """
         plot height and bathymetry as 2 3D surfaces
         """
@@ -253,12 +323,12 @@ class NumaCsvData:
         ax.set_ylabel('y [m]')
         ax.set_zlabel('z [m]')
         ax.invert_xaxis()
-        ax.plot_surface(self.x, self.y, B)
+        ax.plot_surface(self.x, self.y, B, cmap=cmap)
         return fig
 
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
                        height='height', bathy='bathymetry', clims=None,
-                       cmap='jet'):
+                       cmap='viridis'):
         """
         plot height and bathymetry as 2 3D surfaces
         """
@@ -359,6 +429,25 @@ class NumaRunData:
             sort_val = sort_type(sort_val)
         return sort_val
 
+    def legend_label(self, regex_string=None):
+        """
+        return a string to be used in a plot legend
+
+        /carrier_three_obstacle_dx-90_dy-80.csv
+        regex_string: 'dx-\d+_dy-\d+'
+        returns "dx-90 dy-80"
+        """
+        if regex_string is None:
+            return self.name
+        else:
+            p = re.compile(regex_string)
+            m = p.search(self.run_dir_path)
+            try:
+                return m.group().replace("_", " ")
+            except AttributeError as e:
+                print("No match found for regex_string")
+                raise e
+
     def animate_height_3D(self, save_file_path=None, figsize=(14,7),
                           height='height', cmap='jet', bathy='bathymetry',
                           interval=100):
@@ -388,7 +477,8 @@ class NumaRunData:
         ani.save(save_file_path, dpi=300)
 
     def plot_max_energy_distance_time(self, figsize=(12,7),
-                                      uvelo='uvelo', vvelo='vvelo'):
+                                      uvelo='uvelo', vvelo='vvelo',
+                                      height='height', bathy='bathymetry'):
         """
         x axis time y axis distance marker size magnitude for maximum energy
         of wave
@@ -399,7 +489,9 @@ class NumaRunData:
         for ob in self.data_obj_list:
             U = getattr(ob, uvelo)
             V = getattr(ob, vvelo)
-            E = 0.5 * (U**2 + V**2)
+            H = getattr(ob, height)
+            B = getattr(ob, bathy)
+            E = 0.5 * (H - B) * (U**2 + V**2)
             ind = np.argmax(E)
             energy.append(E.flatten()[ind])
             distance.append(ob.x.flatten()[ind])
@@ -412,19 +504,130 @@ class NumaRunData:
         leg = plt.legend(scatterpoints=1)
         leg.legendHandles[0]._sizes = [30]
         return fig
+    
+    def get_kinetic_energy(self, x_coord, y_coord='avg', return_max=True, 
+                            uvelo='uvelo', vvelo='vvelo',
+                            height='height', bathy='bathymetry'):
+        """
+        return the kinetic energy at (x_coord, y_coord) 
+        (if y_coord is average, average along shore)
+        if return_max, return the maximum instantaneous value 
+        else return the time average value  
+        """
+        energy = []
+        for ob in self.data_obj_list:
+            ind = ob.x[0,:].searchsorted(x_coord)
+            U = getattr(ob, uvelo)
+            V = getattr(ob, vvelo)
+            H = getattr(ob, height)
+            B = getattr(ob, bathy)
+            if y_coord == "avg":
+                U = U[:,ind]
+                V = V[:,ind]
+                H = H[:,ind]
+                B = B[:,ind]
+                ## get average value across domain
+                E = 0.5 * np.mean(H-B) * np.mean(U**2+V**2)
+            else:
+                if y_coord == "mid":
+                    ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
+                else:
+                    ind_y = ob.y[:,0].searchsorted(y_coord)
+                U = U[ind_y,ind]
+                V = V[ind_y,ind]
+                H = H[ind_y,ind]
+                B = B[ind_y,ind]            
+                E = 0.5 * (H-B) * (U**2+V**2)
+            energy.append(E)
+        energy = np.asarray(energy)
+        ## instantaneous max
+        if return_max:
+            return np.nanmax(energy)
+        ## return the time average value
+        else:
+            return energy.mean()
+
+    def get_velocity(self, x_coord, y_coord='avg', return_max=True, 
+                            uvelo='uvelo', vvelo='vvelo'):
+        """
+        return the velocity at (x_coord, y_coord) 
+        (if y_coord is average, average along shore)
+        if return_max, return the maximum instantaneous value 
+        else return the time average value  
+        """
+        velocity = []
+        for ob in self.data_obj_list:
+            ind = ob.x[0,:].searchsorted(x_coord)
+            U = getattr(ob, uvelo)
+            V = getattr(ob, vvelo)
+            if y_coord == "avg":
+                U = U[:,ind]
+                V = V[:,ind]
+                ## get average value across domain
+                velocity.append(np.mean(U**2+V**2))
+            else:
+                if y_coord == "mid":
+                    ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
+                else:
+                    ind_y = ob.y[:,0].searchsorted(y_coord)
+                U = U[ind_y,ind]
+                V = V[ind_y,ind]
+            velocity.append(U**2+V**2)
+        velocity = np.asarray(velocity)
+        ## instantaneous max
+        if return_max:
+            return np.nanmax(velocity)
+        ## return the time average value
+        else:
+            return velocity.mean()
+
+    def get_height(self, x_coord, y_coord='avg', return_max=True, 
+                            height='height', bathy='bathymetry'):
+        """
+        return the kinetic energy at (x_coord, y_coord) 
+        (if y_coord is average, average along shore)
+        if return_max, return the maximum instantaneous value 
+        else return the time average value  
+        """
+        hgt = []
+        for ob in self.data_obj_list:
+            ind = ob.x[0,:].searchsorted(x_coord)
+            H = getattr(ob, height)
+            B = getattr(ob, bathy)
+            if y_coord == "avg":
+                H = H[:,ind]
+                B = B[:,ind]
+                ## get average value across domain
+                hgt.append(np.mean(H-B))
+            else:
+                if y_coord == "mid":
+                    ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
+                else:
+                    ind_y = ob.y[:,0].searchsorted(y_coord)
+                H = H[ind_y,ind]
+                B = B[ind_y,ind]            
+            hgt.append(H-B)
+        hgt = np.asarray(hgt)
+        ## instantaneous max
+        if return_max:
+            return np.nanmax(hgt)
+        ## return the time average value
+        else:
+            return hgt.mean()
 
     def plot_shore_max_timeseries(
             self,
             figsize=(12,7),
             figure_instance=None,
             color='k',
-            marker='.'
+            marker='.',
+            regex_string=None
     ):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
         p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
                  figure=figure_instance, mew=0)[0]
-        p.set_label("{}".format(self.name))
+        p.set_label(self.legend_label(regex_string=regex_string))
         return figure_instance
 
 
