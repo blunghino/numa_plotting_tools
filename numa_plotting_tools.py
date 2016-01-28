@@ -100,10 +100,10 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
             x_label_prefix = "Total "
         elif spacing == "dx":
             x_val = m[1]
-            x_label_prefix = "Alongshore "
+            x_label_prefix = "Crossshore "
         elif spacing == "dy":
             x_val = m[2]
-            x_label_prefix = "Crossshore "
+            x_label_prefix = "Alongshore "
         p, = plt.plot(x_val, y_val,
                 color=color[i],
                 marker=marker[i],
@@ -312,18 +312,46 @@ class NumaCsvData:
         plt.ylabel('y [m]')
         return fig
 
-    def plot_bathy_3D(self, figsize=(14,7), bathy='bathymetry', cmap='viridis'):
+    def plot_bathy(self, figsize=(14,7), bathy='bathymetry', 
+                   xmin=None, cmap='viridis'):
         """
-        plot height and bathymetry as 2 3D surfaces
+        plot bathymetry as pcolor
         """
         B = getattr(self, bathy)
+        X = self.x
+        Y = self.y
+        if xmin is not None:
+            ind = X[0,:].searchsorted(xmin)
+            B = B[:,ind:]
+            X = X[:,ind:]
+            Y = Y[:,ind:]
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        ax.pcolor(X, Y, B, cmap=cmap)
+        return fig
+
+    def plot_bathy_3D(self, figsize=(14,7), xmin=None,
+                     bathy='bathymetry', cmap='viridis'):
+        """
+        plot bathymetry as 3D surface
+        """
+        B = getattr(self, bathy)        
+        X = self.x
+        Y = self.y
+        if xmin is not None:
+            ind = X[0,:].searchsorted(xmin)
+            B = B[:,ind:]
+            X = X[:,ind:]
+            Y = Y[:,ind:]
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111, projection='3d')
         ax.set_xlabel('x [m]')
         ax.set_ylabel('y [m]')
         ax.set_zlabel('z [m]')
         ax.invert_xaxis()
-        ax.plot_surface(self.x, self.y, B, cmap=cmap)
+        ax.plot_surface(X, Y, B, rstride=1, cstride=1, cmap=cmap)
         return fig
 
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
@@ -348,11 +376,11 @@ class NumaCsvData:
             ax.set_ylabel('y [m]')
             ax.set_zlabel('z [m]')
             ax.invert_xaxis()
-            ax.plot_surface(self.x, self.y, B)
+            ax.plot_surface(self.x, self.y, B, rstride=1, cstride=1)
         else:
             ax = ax_instance
         p = ax.plot_surface(self.x, self.y, H, cmap=colormap,
-                             vmin=vmin, vmax=vmax)
+                            rstride=1, cstride=1, vmin=vmin, vmax=vmax)
         if return_fig:
             cb = fig.colorbar(p, shrink=.7)
             cb.set_label('Height [m]')
@@ -572,7 +600,7 @@ class NumaRunData:
                     ind_y = ob.y[:,0].searchsorted(y_coord)
                 U = U[ind_y,ind]
                 V = V[ind_y,ind]
-            velocity.append(U**2+V**2)
+                velocity.append(U**2+V**2)
         velocity = np.asarray(velocity)
         ## instantaneous max
         if return_max:
@@ -606,7 +634,7 @@ class NumaRunData:
                     ind_y = ob.y[:,0].searchsorted(y_coord)
                 H = H[ind_y,ind]
                 B = B[ind_y,ind]            
-            hgt.append(H-B)
+                hgt.append(H-B)
         hgt = np.asarray(hgt)
         ## instantaneous max
         if return_max:
