@@ -351,17 +351,29 @@ class NumaCsvData:
         ax.set_ylabel('y [m]')
         ax.set_zlabel('z [m]')
         ax.invert_xaxis()
-        ax.plot_surface(X, Y, B, rstride=1, cstride=1, cmap=cmap)
+        ## monocolor bathy for animation
+        if cmap is None:
+            ax.plot_surface(X, Y, B, rstride=1, cstride=1, color='b')
+        else:
+            ax.plot_surface(X, Y, B, rstride=1, cstride=1, cmap=cmap)
         return fig
 
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
                        height='height', bathy='bathymetry', clims=None,
-                       cmap='viridis'):
+                       cmap='viridis', xmin=None):
         """
-        plot height and bathymetry as 2 3D surfaces
+        plot height and (optionally) bathymetry as 2 3D surfaces
         """
         H = getattr(self, height)
-        B = getattr(self, bathy)
+        B = getattr(self, bathy)        
+        X = self.x
+        Y = self.y
+        if xmin is not None:
+            ind = X[0,:].searchsorted(xmin)
+            H = H[:,ind:]
+            B = B[:,ind:]
+            X = X[:,ind:]
+            Y = Y[:,ind:]
         colormap = plt.get_cmap(cmap)
         if clims is not None:
             vmin = clims[0]
@@ -376,15 +388,18 @@ class NumaCsvData:
             ax.set_ylabel('y [m]')
             ax.set_zlabel('z [m]')
             ax.invert_xaxis()
-            ax.plot_surface(self.x, self.y, B, rstride=1, cstride=1)
+            ax.plot_surface(X, Y, B, rstride=1, cstride=1)
+        ## ax instance passed in as argument
         else:
             ax = ax_instance
-        p = ax.plot_surface(self.x, self.y, H, cmap=colormap,
+        ## plot height surface regardless of return_fig
+        p = ax.plot_surface(X, Y, H, cmap=colormap,
                             rstride=1, cstride=1, vmin=vmin, vmax=vmax)
         if return_fig:
             cb = fig.colorbar(p, shrink=.7)
             cb.set_label('Height [m]')
             return fig
+        ## for use in animation function
         else:
             return [p]
 
@@ -402,15 +417,21 @@ class NumaRunData:
             run_dir_path,
             shore_file_name='OUT_SHORE_data.dat',
             load_csv_data=True,
-            name=None,
+            regex_string=None,
             sort_val=None,
     ):
         self.t_f = t_f
         self.t_restart = t_restart
         self.run_dir_path = run_dir_path
         ## useful name for object
-        if name is not None:
-            self.name = name
+        if regex_string is not None:    
+            p = re.compile(regex_string)
+            m = p.search(self.run_dir_path)
+            try:
+                self.name = m.group().replace("_", " ")
+            except AttributeError as e:
+                print("NumaRunData.__init__: No match found for regex_string")
+                self.name = ""
         else:
             self.name = run_dir_path.split('-')[-1]
         ## value on which to sort in a sequence of NumaRunData objects
@@ -477,18 +498,24 @@ class NumaRunData:
                 raise e
 
     def animate_height_3D(self, save_file_path=None, figsize=(14,7),
-                          height='height', cmap='jet', bathy='bathymetry',
-                          interval=100):
+                          height='height', cmap='viridis', bathy='bathymetry',
+                          interval=100, xmin=None, t_range=None):
         """
         create animation of NumaCsvData.plot_height_3D
         """
         if save_file_path is None:
             save_file_path = self.run_dir_path + '.mp4'
-        ob0 = self.data_obj_list[0]
+        obs_to_plot = self.data_obj_list
+        ## t_range is a tuple containing 2 indices into a self.data_obj_list
+        if t_range is not None:
+            start, end = t_range
+            if start <= end and start >= 0:
+                obs_to_plot = obs_to_plot[start:end]
+        ob0 = obs_to_plot[0]
         H = getattr(ob0, height)
         clims = (H.min(), H.max())
-        fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy)
-        fig.suptitle(os.path.split(self.run_dir_path)[-1])
+        fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy, cmap=None, xmin=xmin)
+        fig.suptitle(self.name)
         ax = fig.get_axes()[0]
         # create list of drawables to pass to animation
         list_plots = [ob.plot_height_3D(
@@ -497,8 +524,9 @@ class NumaRunData:
             height=height,
             bathy=bathy,
             clims=clims,
-            cmap=cmap
-        ) for ob in self.data_obj_list]
+            cmap=cmap,
+            xmin=xmin
+        ) for ob in obs_to_plot]
         cb = fig.colorbar(list_plots[0][0])
         cb.set_label('Height [m]')
         ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
