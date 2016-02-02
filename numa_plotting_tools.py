@@ -360,7 +360,7 @@ class NumaCsvData:
 
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
                        height='height', bathy='bathymetry', clims=None,
-                       cmap='viridis', xmin=None):
+                       cmap='viridis', xmin=None, timestamp=None):
         """
         plot height and (optionally) bathymetry as 2 3D surfaces
         """
@@ -392,6 +392,7 @@ class NumaCsvData:
         ## ax instance passed in as argument
         else:
             ax = ax_instance
+            # ax.text(.97, .97, "t = {} s".format(timestamp), transform=ax.transAxes)
         ## plot height surface regardless of return_fig
         p = ax.plot_surface(X, Y, H, cmap=colormap,
                             rstride=1, cstride=1, vmin=vmin, vmax=vmax)
@@ -499,7 +500,7 @@ class NumaRunData:
 
     def animate_height_3D(self, save_file_path=None, figsize=(14,7),
                           height='height', cmap='viridis', bathy='bathymetry',
-                          interval=100, xmin=None, t_range=None):
+                          interval=100, xmin=None, t_range=None, regex_string=None):
         """
         create animation of NumaCsvData.plot_height_3D
         """
@@ -515,18 +516,21 @@ class NumaRunData:
         H = getattr(ob0, height)
         clims = (H.min(), H.max())
         fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy, cmap=None, xmin=xmin)
-        fig.suptitle(self.name)
+        fig.suptitle(self.legend_label(regex_string))
         ax = fig.get_axes()[0]
         # create list of drawables to pass to animation
-        list_plots = [ob.plot_height_3D(
-            return_fig=False,
-            ax_instance=ax,
-            height=height,
-            bathy=bathy,
-            clims=clims,
-            cmap=cmap,
-            xmin=xmin
-        ) for ob in obs_to_plot]
+        list_plots = []
+        for i, ob in enumerate(obs_to_plot):
+            list_plots.append(ob.plot_height_3D(
+                return_fig=False,
+                ax_instance=ax,
+                height=height,
+                bathy=bathy,
+                clims=clims,
+                cmap=cmap,
+                xmin=xmin,
+                timestamp=start+i*self.t_restart
+            ))
         cb = fig.colorbar(list_plots[0][0])
         cb.set_label('Height [m]')
         ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
