@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.animation
 import matplotlib as mpl
+import scipy.interpolate
 
 
 ## set font to times new roman
@@ -74,23 +75,37 @@ class ObstacleOutlines:
         """
         use bathy to find obstacle base contours using constant slope of domain
         """
-        self.outlines = []
+        self.X = X
+        self.Y = Y
         ## get a bathy with no hills
-        min_x = X < x_range[0]
-        max_x = X > x_range[1]
-        filtr = min_x*max_x
+        min_x = X > x_range[0]
+        max_x = X < x_range[1]
+        filtr = np.invert(min_x*max_x)
         sub_X = X[filtr]
         sub_Y = Y[filtr]
         sub_B = B[filtr]
-        S = None
+        ## interpolate
+        shp = X.shape
+        S = scipy.interpolate.griddata(
+            (sub_X.flatten(), sub_Y.flatten()),
+            sub_B.flatten(),
+            (X.flatten(), Y.flatten())
+        )
+        S = S.reshape(shp)
+        ## get obstacles
+        O = B - S
+        ## get rid of small deviations from 0
+        O[O < .99] = 0
+        self.outlines = O
+        
 
-def add_topo_contours(ax, obstacle_outlines, ls="--", color="darkslategray"):
+def add_topo_contours(ax, o_o, ls="-", color="darkslategray", lw=2):
     """
     add shoreline and obstacle contours to the plot
     """
-    ax.axvline(0, linestyle=ls, color=color, zorder=100)
-    for ol in obstacle_outlines.outlines:
-        pass
+    ax.axvline(0, linestyle=ls, linewidth=lw, color=color, zorder=100)
+    ax.contour(o_o.X, o_o.Y, o_o.outlines, [1], linestyles=ls, 
+        linewidths=lw, colors=color, zorder=101)
     return ax
 
 def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
@@ -292,6 +307,8 @@ class NumaCsvData:
         if ax_instance is None:
             fig = plt.figure(figsize=figsize)
             ax = plt.subplot(111)
+            ob_ol = ObstacleOutlines(X, Y, B)
+            ax = add_topo_contours(ax, ob_ol)
             # ax.contour(X, Y, B, linestyles='dashed', colors='DarkGray', vmin=0, vmax=50)
         else:
             ax = ax_instance
@@ -343,12 +360,12 @@ class NumaCsvData:
             ax = plt.subplot(111)
             obstacle_outlines = ObstacleOutlines(X, Y, B)
             ax = add_topo_contours(ax, obstacle_outlines)
-            p = plt.streamplot(X, Y, U, V, color=speed, cmap=cmap, density=density)
+            p = plt.streamplot(X[0,:], Y[:,0], U, V, color=speed, cmap=cmap, density=density)
             ax.set_xlim(left=x_range[0], right=x_range[1])
             return fig
         else:
             ax = ax_instance
-            p = ax.streamplot(X, Y, U, V, color=speed, cmap=cmap, density=density)
+            p = ax.streamplot(X[0,:], Y[:,0], U, V, color=speed, cmap=cmap, density=density)
             return p
 
     def plot_kinetic_energy(self, figsize=(12,7), cmap='viridis', xmin=None,
@@ -624,15 +641,21 @@ class NumaRunData:
             ind = ob0.x[0,:].searchsorted(xmin)
             B = B[:,ind:]
             H = H[:,ind:]
+            X = ob0.x[:,ind:]
+            Y = ob0.y[:,ind:]
+        ## calculate still water level
         stillwater = B.copy()
         stillwater[B < 0] = 0
         devH = H - stillwater
+        ## caculate obstacle outlines
+        o_o = ObstacleOutlines(X, Y, B)
         ## arbitrary max and min value for colorscaling
         if clims is None:        
             clims = (devH.min(), devH.max())
         fig = plt.figure(figsize=(12,7))
         fig.suptitle(self.legend_label())
         ax = plt.subplot(111)
+        ax = add_topo_contours(ax, o_o)
         ## quiver legend set; get handle and make colorbar
         P, Q = ob0.plot_devheight_velocity(ax_instance=ax, xmin=xmin, plot_every=plot_every, 
             stillwater=stillwater, clims=clims, cmap=cmap)
