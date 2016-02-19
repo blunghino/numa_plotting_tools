@@ -108,6 +108,27 @@ def add_topo_contours(ax, o_o, ls="-", color="darkslategray", lw=2):
         linewidths=lw, colors=color, zorder=101)
     return ax
 
+class GridSpec:
+    """
+    class to hold grid data for interpolation
+    """
+    def __init__(self, X, Y):
+        """
+        prepare X and Y to interpolate data onto evenly spaced grid using 
+        scipy.interpolate.griddata
+        """
+        self.xi = np.linspace(X[0,0], X[0,-1], X.shape[1])
+        self.yi = np.linspace(Y[0,0], Y[-1,0], Y.shape[0])
+        self.Xi, self.Yi = np.meshgrid(self.xi, self.yi)
+        self.shp = self.Xi.shape
+        self.Xi_ = self.Xi.flatten()
+        self.Yi_ = self.Yi.flatten()
+        self.X_ = X.flatten()
+        self.Y_ = Y.flatten()
+
+    def out(self):
+        return self.Xi_, self.Yi_, self.X_, self.Y_, self.shp
+            
 def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
                                 spacing='dist', function="get_kinetic_energy",
                                 y_label="", sort_type=str,
@@ -329,15 +350,16 @@ class NumaCsvData:
         else: 
             return P, Q
 
-    def plot_velocity_streamlines(self, figsize=(12,7), return_fig=True, density=1, 
-                                    ax_instance=None, x_range=None, uvelo='uvelo', 
-                                    vvelo='vvelo', cmap="viridis", bathy="bathymetry"):
+    def plot_velocity_streamlines(self, figsize=(12,7), return_fig=True, density=1, norm=None,
+                                  ax_instance=None, x_range=None, uvelo='uvelo',
+                                  grid_spec=None, vvelo='vvelo', cmap="viridis",
+                                  bathy="bathymetry", arrowsize=1):
         """
         streamline plot of velocity
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
-        ## for obstacle outlines
+        ## for obstacle outlines only
         B = getattr(self, bathy)
         if x_range is not None:
             min_x = self.x[0,:].searchsorted(x_range[0])
@@ -353,19 +375,32 @@ class NumaCsvData:
         else:
             X = self.x
             Y = self.y
-            x_range = (X[0,:][0], X[0,:][-1])
-        speed = np.sqrt(U**2 + V**2)
+            x_range = (X[0,0], X[0,-1])
+        
+        ## interpolate onto evenly spaced grid
+        if grid_spec:
+            ## option to pass in precomputed object of grid_for_interpolation function
+            Xi_, Yi_, X_, Y_, shp = grid_spec.out()
+        else:
+            Xi_, Yi_, X_, Y_, shp = GridSpec(X, Y).out()
+        Ui = scipy.interpolate.griddata((X_, Y_), U.flatten(), (Xi_, Yi_)).reshape(shp)
+        Vi = scipy.interpolate.griddata((X_, Y_), V.flatten(), (Xi_, Yi_)).reshape(shp)  
+        Xi = Xi_.reshape(shp)
+        Yi = Yi_.reshape(shp)
+        speedi = np.sqrt(Ui**2 + Vi**2)     
         if ax_instance is None:
             fig = plt.figure(figsize=figsize)
             ax = plt.subplot(111)
             obstacle_outlines = ObstacleOutlines(X, Y, B)
             ax = add_topo_contours(ax, obstacle_outlines)
-            p = plt.streamplot(X[0,:], Y[:,0], U, V, color=speed, cmap=cmap, density=density)
-            ax.set_xlim(left=x_range[0], right=x_range[1])
+            p = ax.streamplot(Xi[0,:], Yi[:,0], Ui, Vi, color=speedi, 
+                norm=norm, cmap=cmap, arrowsize=arrowsize, density=density)
+            # ax.set_xlim(left=x_range[0], right=x_range[1])
             return fig
         else:
             ax = ax_instance
-            p = ax.streamplot(X[0,:], Y[:,0], U, V, color=speed, cmap=cmap, density=density)
+            p = ax.streamplot(Xi[0,:], Yi[:,0], Ui, Vi, norm=norm,
+                arrowsize=arrowsize, color=speedi, cmap=cmap, density=density)
             return p
 
     def plot_kinetic_energy(self, figsize=(12,7), cmap='viridis', xmin=None,
@@ -617,9 +652,91 @@ class NumaRunData:
                 print("No match found for regex_string")
                 raise e
 
+    def animate_velocity_streamlines(self, save_file_path=None, figsize=(14,7), uvelo="uvelo",
+                          vvelo="vvelo", cmap='plasma', bathy='bathymetry', arrowsize=1,
+                          interval=200, x_range=None, density=1, t_range=None, clims=None):
+        """
+        create an animation of NumaCsvData.plot_velocity_streamlines
+        """
+        if save_file_path is None:
+            save_file_path = self.run_dir_path + '_devheight_velocity.mp4'
+        obs_to_plot = self.data_obj_list
+        ## t_range is a tuple containing 2 indices into a self.data_obj_list
+        if t_range is not None:
+            start, end = t_range
+            if start <= end and start >= 0:
+                obs_to_plot = obs_to_plot[start:end]
+        else:
+            start = 0
+        ob0 = obs_to_plot[0]
+        B = getattr(ob0, bathy)
+        ## set up for interpolated grid and obstacle outlines
+        if x_range is not None:
+            min_x = ob0.x[0,:].searchsorted(x_range[0])
+            if x_range[1] == 'end':
+                max_x = -1
+            else:
+                max_x = ob0.x[0,:].searchsorted(x_range[1])
+            X = ob0.x[:,min_x:max_x]
+            Y = ob0.y[:,min_x:max_x]
+            B = B[:,min_x:max_x]
+        else:
+            X = ob0.x
+            Y = ob0.y
+            x_range = (X[0,0], X[0,-1])
+        ## initialize GridSpec and ObstacleOutlines
+        g_s = GridSpec(X, Y)
+        o_o = ObstacleOutlines(X, Y, B)
+        ## set colormap value limits
+        if clims is not None:
+            norm = mpl.colors.Normalize(clims[0], clims[1])
+        else:
+            norm = None
+        fig = plt.figure(figsize=figsize)
+        ax = plt.subplot(111)
+        ax = add_topo_contours(ax, o_o)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        ## quiver legend set; get handle and make colorbar
+        sc = ob0.plot_velocity_streamlines(density=density, grid_spec=g_s, cmap=cmap,
+            norm=norm, ax_instance=ax, x_range=x_range, arrowsize=arrowsize)
+        cb = fig.colorbar(sc.lines, extend='max')
+        cb.set_label("Velocity [m/s^2]")
+        ## hide plotted stuff
+        sc.lines.set_visible(False)
+        for child in ax.get_children():
+            if isinstance(child, mpl.patches.FancyArrowPatch):
+                child.set_visible(False)
+        # create list of drawables to pass to animation
+        list_plots = []
+        for i, ob in enumerate(obs_to_plot):
+            ## hide old children
+            for child in ax.get_children():
+                if isinstance(child, mpl.patches.FancyArrowPatch):
+                    child.set_visible(False)
+            sc = ob.plot_velocity_streamlines(
+                norm=norm,
+                density=density,
+                cmap=cmap,
+                x_range=x_range,
+                grid_spec=g_s,
+                ax_instance=ax,
+                arrowsize=arrowsize
+            )
+            ## mpl.streamplot is poorly written...
+            artists = [sc.lines]
+            for child in ax.get_children():
+                ## SOO UGLY!!!
+                if child.get_visible() and isinstance(child, mpl.patches.FancyArrowPatch):
+                    artists.append(child)
+            list_plots.append(artists)
+        ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
+        ani.save(save_file_path, dpi=300)
+
+
     def animate_devheight_velocity(self, save_file_path=None, figsize=(14,7), uvelo="uvelo",
                           vvelo="vvelo", height='height', cmap='magma', bathy='bathymetry',
-                          interval=100, xmin=None, plot_every=1, t_range=None, clims=None):
+                          interval=200, xmin=None, plot_every=1, t_range=None, clims=None):
         """
         create an animation of NumaCsvData.plot_height_velocity
         """
@@ -633,7 +750,6 @@ class NumaRunData:
                 obs_to_plot = obs_to_plot[start:end]
         else:
             start = 0
-        ## use initial condition to set height color bar limits
         ob0 = obs_to_plot[0]
         B = getattr(ob0, bathy)
         H = getattr(ob0, height)        
@@ -643,6 +759,9 @@ class NumaRunData:
             H = H[:,ind:]
             X = ob0.x[:,ind:]
             Y = ob0.y[:,ind:]
+        else:
+            X = ob0.x
+            Y = ob0.y
         ## calculate still water level
         stillwater = B.copy()
         stillwater[B < 0] = 0
@@ -652,7 +771,7 @@ class NumaRunData:
         ## arbitrary max and min value for colorscaling
         if clims is None:        
             clims = (devH.min(), devH.max())
-        fig = plt.figure(figsize=(12,7))
+        fig = plt.figure(figsize=figsize)
         fig.suptitle(self.legend_label())
         ax = plt.subplot(111)
         ax = add_topo_contours(ax, o_o)
