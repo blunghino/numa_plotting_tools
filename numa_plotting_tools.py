@@ -128,10 +128,19 @@ class GridSpec:
 
     def out(self):
         return self.Xi_, self.Yi_, self.X_, self.Y_, self.shp
-            
+
+def remove_outliers(array, n_stds):
+    """
+    remove data greater than n_stds standard deviations from the mean
+    """
+    mn = array.mean()
+    std = array.std()
+    return array[np.abs(array) <= mn + n_stds*std]
+
 def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
                                 spacing='dist', function="get_kinetic_energy",
                                 y_label="", sort_type=str, x_spacing=True,
+                                filter_outliers=None, x_width=None,
                                 colormap='viridis', regex_first_spacing_val_ind=1,
                                 color_dict=None, marker_dict=None, ncol=2):
     """
@@ -158,7 +167,8 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
     ## loop over NumaRunData objects
     for i, nrd in enumerate(nrds):
         ## call function to calc y value
-        y_val = getattr(nrd, function)(x_coord, y_coord, plot_max)
+        y_val = getattr(nrd, function)(x_coord, y_coord, plot_max,
+                                       filter_outliers, x_width)
         ## get spacing vals from run_dir_path attribute
         re_obj = re.compile('\d+')
         m = re_obj.findall(nrd.run_dir_path)
@@ -940,7 +950,8 @@ class NumaRunData:
         leg.legendHandles[0]._sizes = [30]
         return fig
     
-    def get_kinetic_energy(self, x_coord, y_coord='avg', return_max=True, 
+    def get_kinetic_energy(self, x_coord, y_coord='avg', return_max=True,
+                           filter_outliers=None, x_width=None,
                             uvelo='uvelo', vvelo='vvelo',
                             height='height', bathy='bathymetry'):
         """
@@ -957,12 +968,21 @@ class NumaRunData:
             H = getattr(ob, height)
             B = getattr(ob, bathy)
             if y_coord == "avg":
-                U = U[:,ind]
-                V = V[:,ind]
-                H = H[:,ind]
-                B = B[:,ind]
+                ## to do average over area rather than line
+                if x_width is not None:
+                    ind2 = ob.x[0,:].searchsorted(x_coord+x_width)
+                else:
+                    ind2 = ind + 1
+                U = U[:,ind:ind2]
+                V = V[:,ind:ind2]
+                H = H[:,ind:ind2]
+                B = B[:,ind:ind2]
                 ## get average value across domain
-                E = 0.5 * np.mean(H-B) * np.mean(U**2+V**2)
+                E = 0.5 * (H-B) * (U**2+V**2)
+                ## remove data more than filter_outliers standard deviations from mean
+                if filter_outliers is not None:
+                    E = remove_outliers(E, filter_outliers)
+                E = np.mean(E)
             else:
                 if y_coord == "mid":
                     ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
@@ -971,8 +991,9 @@ class NumaRunData:
                 U = U[ind_y,ind]
                 V = V[ind_y,ind]
                 H = H[ind_y,ind]
-                B = B[ind_y,ind]            
+                B = B[ind_y,ind]
                 E = 0.5 * (H-B) * (U**2+V**2)
+
             energy.append(E)
         energy = np.asarray(energy)
         ## instantaneous max
@@ -983,6 +1004,7 @@ class NumaRunData:
             return energy.mean()
 
     def get_velocity(self, x_coord, y_coord='avg', return_max=True, 
+                           filter_outliers=None, x_width=None,
                             uvelo='uvelo', vvelo='vvelo'):
         """
         return the velocity at (x_coord, y_coord) 
@@ -996,10 +1018,19 @@ class NumaRunData:
             U = getattr(ob, uvelo)
             V = getattr(ob, vvelo)
             if y_coord == "avg":
-                U = U[:,ind]
-                V = V[:,ind]
+                ## to do average over area rather than line
+                if x_width is not None:
+                    ind2 = ob.x[0,:].searchsorted(x_coord+x_width)
+                else:
+                    ind2 = ind + 1
+                U = U[:,ind:ind2]
+                V = V[:,ind:ind2]
                 ## get average value across domain
-                velocity.append(np.mean(U**2+V**2))
+                vel = np.sqrt(U**2+V**2)
+                ## remove data more than filter_outliers standard deviations from mean
+                if filter_outliers is not None:
+                    vel = remove_outliers(vel, filter_outliers)
+                vel = np.mean(vel)
             else:
                 if y_coord == "mid":
                     ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
@@ -1007,7 +1038,8 @@ class NumaRunData:
                     ind_y = ob.y[:,0].searchsorted(y_coord)
                 U = U[ind_y,ind]
                 V = V[ind_y,ind]
-                velocity.append(U**2+V**2)
+                vel = np.sqrt(U**2+V**2)
+            velocity.append(vel)
         velocity = np.asarray(velocity)
         ## instantaneous max
         if return_max:
@@ -1017,7 +1049,8 @@ class NumaRunData:
             return velocity.mean()
 
     def get_height(self, x_coord, y_coord='avg', return_max=True, 
-                            height='height', bathy='bathymetry'):
+                            filter_outliers=None, x_width=None,
+                           height='height', bathy='bathymetry'):
         """
         return the kinetic energy at (x_coord, y_coord) 
         (if y_coord is average, average along shore)
@@ -1030,18 +1063,28 @@ class NumaRunData:
             H = getattr(ob, height)
             B = getattr(ob, bathy)
             if y_coord == "avg":
-                H = H[:,ind]
-                B = B[:,ind]
+                ## to do average over area rather than line
+                if x_width is not None:
+                    ind2 = ob.x[0,:].searchsorted(x_coord+x_width)
+                else:
+                    ind2 = ind + 1
+                H = H[:,ind:ind2]
+                B = B[:,ind:ind2]
                 ## get average value across domain
-                hgt.append(np.mean(H-B))
+                h = H - B
+                ## remove data more than filter_outliers standard deviations from mean
+                if filter_outliers is not None:
+                    h = remove_outliers(h, filter_outliers)
+                h = np.mean(h)
             else:
                 if y_coord == "mid":
                     ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
                 else:
                     ind_y = ob.y[:,0].searchsorted(y_coord)
                 H = H[ind_y,ind]
-                B = B[ind_y,ind]            
-                hgt.append(H-B)
+                B = B[ind_y,ind]
+                h = H-B
+            hgt.append(h)
         hgt = np.asarray(hgt)
         ## instantaneous max
         if return_max:
