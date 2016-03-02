@@ -131,9 +131,9 @@ class GridSpec:
             
 def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
                                 spacing='dist', function="get_kinetic_energy",
-                                y_label="", sort_type=str,
+                                y_label="", sort_type=str, x_spacing=True,
                                 colormap='viridis', regex_first_spacing_val_ind=1,
-                                color_dict=None, marker_dict=None):
+                                color_dict=None, marker_dict=None, ncol=2):
     """
     plot data values specified in kwarg function at location x_coord in
     run, plot by spacing found using regex_string
@@ -171,12 +171,18 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
         elif spacing == "dx":
             x_val = m[ind]
             x_label_prefix = "Crossshore "
-        elif spacing == "dy":
+        elif spacing == "dy" and x_spacing:
             x_val = m[ind+1]
+            x_label_prefix = "Alongshore "
+        elif spacing == "dy" and not x_spacing:
+            x_val = m[ind]
             x_label_prefix = "Alongshore "
         if color_dict and marker_dict:
             color = color_dict[m[ind]]
-            marker = marker_dict[m[ind+1]]
+            if x_spacing:
+                marker = marker_dict[m[ind+1]]
+            else:
+                marker = marker_dict[m[ind]]
         else:
             color = colors[i]
             marker = markers[i]
@@ -194,7 +200,7 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
     plt.title("x = {}".format(x_coord))
     plt.xlabel("{}distance between obstacle centers [m]".format(x_label_prefix))
     plt.ylabel(y_label)
-    fig.legend(hands, labs, loc=5, numpoints=1, ncol=2)
+    fig.legend(hands, labs, loc=5, numpoints=1, ncol=ncol)
     return fig
 
 def plot_shore_max_timeseries(nrds, figsize=(18,8), colormap='viridis', sort_type=int):
@@ -299,6 +305,59 @@ class NumaCsvData:
         plt.pcolor(self.x, self.y, H)
         return fig
 
+    def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
+                                uvelo='uvelo', vvelo='vvelo', bathy="bathymetry", cmap="viridis",
+                                xmin=None, boolean_depth=None, ax_instance=None, clims=None):
+        """
+        plot the depth
+        overlay velocity vectors
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        H = getattr(self, height)
+        B = getattr(self, bathy)
+        if xmin is not None:
+            ind = self.x[0,:].searchsorted(xmin)
+            U = U[:,ind:]
+            V = V[:,ind:]
+            H = H[:,ind:]
+            B = B[:,ind:]
+            X = self.x[:,ind:]
+            Y = self.y[:,ind:]
+        else:
+            X = self.x
+            Y = self.y
+        depth = H - B
+        ## convert the depth to 0 or 1 depending whether or not there is water there
+        if boolean_depth is not None:
+            filtr = depth > boolean_depth
+            depth[filtr] = 1
+            depth[np.invert(filtr)] = 0
+        if ax_instance is None:
+            fig = plt.figure(figsize=figsize)
+            ax = plt.subplot(111)
+            ob_ol = ObstacleOutlines(X, Y, B)
+            ax = add_topo_contours(ax, ob_ol)
+            # ax.contour(X, Y, B, linestyles='dashed', colors='DarkGray', vmin=0, vmax=50)
+        else:
+            ax = ax_instance
+        if clims:
+            P = ax.pcolor(X, Y, depth, cmap=cmap, vmin=clims[0], vmax=clims[1])
+        else:
+            P = ax.pcolor(X, Y, depth, cmap=cmap)
+        Q = ax.quiver(X[:,::plot_every], Y[:,::plot_every], U[:,::plot_every],
+                      V[:,::plot_every], color="k")
+        qk = ax.quiverkey(Q, 0.9, 0.95, 0.5, r'$0.5 \frac{m}{s}$',
+                   labelpos='E',
+                   coordinates='figure',
+                   fontproperties={'weight': 'bold'})
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        if ax_instance is None:
+            return fig
+        else:
+            return P, Q
+
     def plot_devheight_velocity(self, figsize=(12,7), height='height', plot_every=1, 
                                 uvelo='uvelo', vvelo='vvelo', bathy="bathymetry", cmap="viridis",
                                 xmin=None, stillwater=None, ax_instance=None, clims=None):
@@ -337,7 +396,6 @@ class NumaCsvData:
             P = ax.pcolor(X, Y, devH, cmap=cmap, vmin=clims[0], vmax=clims[1])
         else:
             P = ax.pcolor(X, Y, devH, cmap=cmap)
-        # cb = plt.colorbar(P)
         Q = ax.quiver(X[:,::plot_every], Y[:,::plot_every], U[:,::plot_every], V[:,::plot_every], color="k")
         qk = ax.quiverkey(Q, 0.9, 0.95, 1, r'$1 \frac{m}{s}$',
                    labelpos='E',
@@ -350,7 +408,7 @@ class NumaCsvData:
         else: 
             return P, Q
 
-    def plot_velocity_streamlines(self, figsize=(12,7), return_fig=True, density=1, norm=None,
+    def plot_velocity_streamlines(self, figsize=(12,7), density=1, norm=None,
                                   ax_instance=None, x_range=None, uvelo='uvelo',
                                   grid_spec=None, vvelo='vvelo', cmap="viridis",
                                   bathy="bathymetry", arrowsize=1):
@@ -382,6 +440,7 @@ class NumaCsvData:
             ## option to pass in precomputed object of grid_for_interpolation function
             Xi_, Yi_, X_, Y_, shp = grid_spec.out()
         else:
+            ## compute interpolated grid
             Xi_, Yi_, X_, Y_, shp = GridSpec(X, Y).out()
         Ui = scipy.interpolate.griddata((X_, Y_), U.flatten(), (Xi_, Yi_)).reshape(shp)
         Vi = scipy.interpolate.griddata((X_, Y_), V.flatten(), (Xi_, Yi_)).reshape(shp)  
@@ -515,7 +574,8 @@ class NumaCsvData:
                        height='height', bathy='bathymetry', clims=None,
                        cmap='viridis', xmin=None, timestamp=None, stride=1):
         """
-        plot height and (optionally) bathymetry as 2 3D surfaces
+        plot height as 3D surface and color by depth
+        (optionally) bathymetry as 3D surfaces
         """
         H = getattr(self, height)
         B = getattr(self, bathy)        
@@ -527,13 +587,19 @@ class NumaCsvData:
             B = B[:,ind:]
             X = X[:,ind:]
             Y = Y[:,ind:]
+        ## set up color map
+        depth = H - B
         colormap = plt.get_cmap(cmap)
         if clims is not None:
             vmin = clims[0]
             vmax = clims[1]
         else:
-            vmin = H.min()
-            vmax = H.max()
+            vmin = depth.min()
+            vmax = depth.max()
+        ## array for colors
+        norm_depth = depth/vmax
+        norm_depth[norm_depth > 1] = 1.0
+        norm_depth = norm_depth.astype(str)
         if return_fig:
             fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(111, projection='3d')
@@ -547,15 +613,15 @@ class NumaCsvData:
             ax = ax_instance
             # ax.text(.97, .97, "t = {} s".format(timestamp), transform=ax.transAxes)
         ## plot height surface regardless of return_fig
-        p = ax.plot_surface(X, Y, H, cmap=colormap,
+        p = ax.plot_surface(X, Y, H, cmap=colormap, facecolors=norm_depth,
                             rstride=stride, cstride=stride, vmin=vmin, vmax=vmax)
         if return_fig:
             cb = fig.colorbar(p, shrink=.7)
-            cb.set_label('Height [m]')
+            cb.set_label('Depth [m]')
             return fig
         ## for use in animation function
         else:
-            return [p]
+            return p
 
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
@@ -814,7 +880,13 @@ class NumaRunData:
             start = 0
         ob0 = obs_to_plot[0]
         H = getattr(ob0, height)
-        clims = (H.min(), H.max())
+        B = getattr(ob0, bathy)
+        if xmin is not None:
+            ind = ob0.x[0,:].searchsorted(xmin)
+            B = B[:,ind:]
+            H = H[:,ind:]
+        depth = H - B
+        clims = (0, np.max(depth))
         fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy, 
                                 cmap=None, xmin=xmin, stride=stride)
         fig.suptitle(self.legend_label(regex_string))
@@ -822,7 +894,7 @@ class NumaRunData:
         # create list of drawables to pass to animation
         list_plots = []
         for i, ob in enumerate(obs_to_plot):
-            list_plots.append(ob.plot_height_3D(
+            p = ob.plot_height_3D(
                 return_fig=False,
                 ax_instance=ax,
                 height=height,
@@ -832,9 +904,10 @@ class NumaRunData:
                 xmin=xmin,
                 stride=stride,
                 timestamp=start+i*self.t_restart
-            ))
-        cb = fig.colorbar(list_plots[0][0])
-        cb.set_label('Height [m]')
+            )
+            list_plots.append([p])
+        # cb = fig.colorbar(to_map)
+        # cb.set_label('Depth [m]')
         ani = mpl.animation.ArtistAnimation(fig, list_plots, interval=interval)
         ani.save(save_file_path, dpi=300)
 
