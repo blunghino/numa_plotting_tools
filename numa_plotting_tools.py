@@ -626,8 +626,8 @@ class NumaCsvData:
         p = ax.plot_surface(X, Y, H, cmap=colormap, facecolors=norm_depth,
                             rstride=stride, cstride=stride, vmin=vmin, vmax=vmax)
         if return_fig:
-            cb = fig.colorbar(p, shrink=.7)
-            cb.set_label('Depth [m]')
+            # cb = fig.colorbar(p, shrink=.7)
+            # cb.set_label('Depth [m]')
             return fig
         ## for use in animation function
         else:
