@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
 import matplotlib.animation
 import matplotlib as mpl
 import scipy.interpolate
@@ -609,7 +610,8 @@ class NumaCsvData:
         ## array for colors
         norm_depth = depth/vmax
         norm_depth[norm_depth > 1] = 1.0
-        norm_depth = norm_depth.astype(str)
+        norm = plt.Normalize()
+        norm_colors = plt.cm.get_cmap(cmap)(norm(norm_depth))
         if return_fig:
             fig = plt.figure(figsize=figsize)
             ax = fig.add_subplot(111, projection='3d')
@@ -623,7 +625,7 @@ class NumaCsvData:
             ax = ax_instance
             # ax.text(.97, .97, "t = {} s".format(timestamp), transform=ax.transAxes)
         ## plot height surface regardless of return_fig
-        p = ax.plot_surface(X, Y, H, cmap=colormap, facecolors=norm_depth,
+        p = ax.plot_surface(X, Y, H, cmap=colormap, facecolors=norm_colors,
                             rstride=stride, cstride=stride, vmin=vmin, vmax=vmax)
         if return_fig:
             # cb = fig.colorbar(p, shrink=.7)
