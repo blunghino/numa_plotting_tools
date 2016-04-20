@@ -28,7 +28,6 @@ def saveobj(obj, path):
         ## Open file and dump object
         with open(path, 'wb') as output:
             pickle.dump(obj, output)
-            output.close()
         return path
     except FileNotFoundError:
         raise
@@ -43,7 +42,6 @@ def openobj(path):
     ## open file and load object
     with open(path, 'rb') as picklein:
         obj = pickle.load(picklein)
-        picklein.close()
     return obj
 
 def get_run_dirs(dir_prefix="failed_"):
@@ -778,8 +776,13 @@ class NumaRunData:
         ## quiver legend set; get handle and make colorbar
         sc = ob0.plot_velocity_streamlines(density=density, grid_spec=g_s, cmap=cmap,
             norm=norm, ax_instance=ax, x_range=x_range, arrowsize=arrowsize)
-        cb = fig.colorbar(sc.lines, extend='max')
-        cb.set_label("Velocity [m/s^2]")
+        ## in case you have no velocity streamlines
+        try:
+            cb = fig.colorbar(sc.lines, extend='max')
+            cb.set_label("Velocity [m/s^2]")
+        except TypeError:
+            pass
+
         ## hide plotted stuff
         sc.lines.set_visible(False)
         for child in ax.get_children():
