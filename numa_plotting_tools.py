@@ -269,6 +269,15 @@ class NumaCsvData:
             for att in self.headers:
                 temp = getattr(self, att).reshape((self.nely,self.nelx))
                 setattr(self, att, temp)
+            ## create velo_mag attribute for velocity magnitude
+            try:
+                u = getattr(self, 'uvelo')
+                v = getattr(self, 'vvelo')
+                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+            except AttributeError as e:
+                print(e)
+                raise warnings.warning(
+                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
         else:
             ## can't detect x and/or y coord data
             raise warnings.warning(
