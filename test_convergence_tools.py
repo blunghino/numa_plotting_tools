@@ -8,7 +8,7 @@ def interp_to_mesh(fine_x, fine_y, nrd, ind=None, att='height'):
     """
     interpolate vals at grid defined by x and y onto grid
     defined by fine_x and fine_y
-    ie interpolate the coarse grid onto the fine grid points
+    ie interpolate the nrd grid onto the fine_x, fine_y grid points
 
     use ind to only interpolate one data point from nrd
     """
@@ -108,21 +108,22 @@ def calc_error_norms(nrds, ind=None, att="velo_mag"):
     linf_err = l1_err.copy()
     ## get fine grid and values
     nrd_f = nrds[-1]
-    xi = nrd_f.data_obj_list[0].x
-    yi = nrd_f.data_obj_list[0].y
-    ob = nrd_f.data_obj_list[ind]
-    zf = [getattr(ob, att)]
-    zero = np.zeros_like(zf)
-    l1_f = calc_l1_error(zf, zero)[0]
-    l2_f = calc_l2_error(zf, zero)[0]
-    li_f = calc_linf_error(zf, zero)[0]
     ## loop over all coarse nodes
     for j, nrd_c in enumerate(nrds[:-1]):
         ## calculate interpolated values
-        zi = interp_to_mesh(xi, yi, nrd_c, ind, att)
-        l1_err[j] = calc_l1_error(zf, zi)[0] / l1_f
-        l2_err[j] = calc_l2_error(zf, zi)[0] / l2_f
-        linf_err[j] = calc_linf_error(zf, zi)[0] / li_f
+        xi = nrd_c.data_obj_list[0].x
+        yi = nrd_c.data_obj_list[0].y
+        ## note we are not using the interp_to_mesh func as it was designed
+        ## we are interpolating the fine grid values onto the coarse grid
+        zi = interp_to_mesh(xi, yi, nrd_f, ind, att)
+        zc = [getattr(nrd_c.data_obj_list[ind], att)]
+        zero = [np.zeros_like(zi[0])]
+        l1_f = calc_l1_error(zi, zero)[0]
+        l2_f = calc_l2_error(zi, zero)[0]
+        li_f = calc_linf_error(zi, zero)[0]
+        l1_err[j] = calc_l1_error(zi, zc)[0] / l1_f
+        l2_err[j] = calc_l2_error(zi, zc)[0] / l2_f
+        linf_err[j] = calc_linf_error(zi, zc)[0] / li_f
     return l1_err, l2_err, linf_err
 
 
