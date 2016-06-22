@@ -12,7 +12,6 @@ import matplotlib.animation
 import matplotlib as mpl
 import scipy.interpolate
 
-
 ## set font to times new roman
 mpl.rcParams['font.family'] = 'serif'
 mpl.rcParams['font.serif'] = 'Times New Roman'
@@ -46,7 +45,7 @@ def openobj(path):
 
 def get_run_dirs(dir_prefix="failed_"):
     """
-    returns list of all dir names in curdir`
+    returns list of all dir names in os.curdir
     """
     ld = len(dir_prefix)
     xs = os.walk(os.curdir)
@@ -320,7 +319,7 @@ class NumaCsvData:
         """
         H = getattr(self, height)
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(self.x, self.y, H)
+        plt.pcolor(self.x, self.y, H, cmap='viridis')
         return fig
 
     def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
@@ -645,6 +644,55 @@ class NumaCsvData:
     def __repr__(self):
         return "NumaCsvData({})".format(self.csv_file_path)
 
+class UnstNumaCsvData(NumaCsvData):
+    """
+    sub class of numa_plotting_tools.NumaCsvData
+      modifies __init__ to interpolate data on to a regular grid
+    """
+    def __init__(self, csv_file_path, xcoord_header='xcoord',
+                 ycoord_header='ycoord', delta_x=5.):
+        ## load data
+        self.csv_file_path = csv_file_path
+        self.headers = self._get_headers(csv_file_path)
+        self.data = self._load_csv_data(csv_file_path)
+        for j, att in enumerate(self.headers):
+            setattr(self, att, self.data[:,j])
+
+        ## reshape inferring shape from data
+        if xcoord_header in self.headers and ycoord_header in self.headers:
+            self.headers.remove(xcoord_header)
+            self.headers.remove(ycoord_header)
+            x_unst = getattr(self, xcoord_header)
+            y_unst = getattr(self, ycoord_header)
+            x_st = np.arange(np.min(x_unst), np.max(x_unst), delta_x)
+            y_st = np.arange(np.min(y_unst), np.max(y_unst), delta_x)
+            self.nelx = len(x_st)
+            self.nely = len(y_st)
+            self.x, self.y = np.meshgrid(x_st, y_st)
+            ## for each attribute interpolate onto grid
+            for att in self.headers:
+                temp = getattr(self, att)
+                temp = scipy.interpolate.griddata((x_unst, y_unst), temp, (self.x, self.y))
+                setattr(self, att, temp)
+            ## create velo_mag attribute for velocity magnitude
+            try:
+                u = getattr(self, 'uvelo')
+                v = getattr(self, 'vvelo')
+                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+            except AttributeError as e:
+                print(e)
+                raise warnings.warning(
+                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
+        else:
+            ## can't detect x and/or y coord data
+            raise warnings.warning(
+                'NO X and/or Y data found using headers {} and {} \n{}'.format(
+                    xcoord_header,
+                    ycoord_header,
+                    csv_file_path
+                )
+            )
+
 class NumaRunData:
     """
     class to hold all data associated with a Numa model run
@@ -658,6 +706,7 @@ class NumaRunData:
             load_csv_data=True,
             regex_string=None,
             sort_val=None,
+            unstructured=False
     ):
         self.t_f = t_f
         self.t_restart = t_restart
@@ -681,17 +730,21 @@ class NumaRunData:
             csv_file_root = os.path.split(run_dir_path)[1]
             csv_file_names = ['{}_{:03d}.csv'.format(
                 csv_file_root, i) for i in range(self.n_outputs)]
-            self.data_obj_list = self._load_numa_csv_data(csv_file_names)
+            self.data_obj_list = self._load_numa_csv_data(csv_file_names,
+                                                          unstructured=unstructured)
         self.t, self.shore_max = self._load_shore_data(shore_file_name)
 
-    def _load_numa_csv_data(self, csv_file_names):
+    def _load_numa_csv_data(self, csv_file_names, unstructured=False):
         """
         load data from model output csvs
         """
         data_obj_list = []
         for csv_file_name in csv_file_names:
             csv_file_path = os.path.join(self.run_dir_path, csv_file_name)
-            ncd = NumaCsvData(csv_file_path)
+            if unstructured:
+                ncd = UnstNumaCsvData(csv_file_path)
+            else:
+                ncd = NumaCsvData(csv_file_path)
             data_obj_list.append(ncd)
         return data_obj_list
 
