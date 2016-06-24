@@ -131,6 +131,8 @@ def plot_error_norms_with_h(h_vals, nrds, ind=0, att="velo_mag", xlims=None, bas
     """
     plot error calculated with 3 different norms as a function of 
     h for a set of model runs
+    h_vals is a numpy.ndarray of grid scale values,
+    nrds is a list of numa_plotting_tools.NumaRunData objects
     the FINEST GRID is the LAST nrd in nrds
     """
     fig = plt.figure(figsize=(12,9))

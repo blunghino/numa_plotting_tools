@@ -23,10 +23,15 @@ def saveobj(obj, path):
     ## Add correct file extension to path passed with function call
     if path[-4:] != '.pkl':
         path += '.pkl'
+    ## this is a workaround for a bug in python 3.5 i/o on OS X https://bugs.python.org/issue24658
+    max_bytes = 2**31 - 1
+    pkl_bytes = pickle.dumps(obj)
+    n_bytes = len(pkl_bytes)
     try:
         ## Open file and dump object
         with open(path, 'wb') as output:
-            pickle.dump(obj, output)
+            for idx in range(0, n_bytes, max_bytes):
+                output.write(pkl_bytes[idx:idx+max_bytes])
         return path
     except FileNotFoundError:
         raise
@@ -38,10 +43,15 @@ def openobj(path):
     ## Add correct file extension to path passed with function call
     if path[-4:] != '.pkl':
         path += '.pkl'
+    ## this is a workaround for a bug in python 3.5 i/o on OS X https://bugs.python.org/issue24658
+    bytes_in = bytearray(0)
+    input_size = os.path.getsize(path)
+    max_bytes = 2**31 - 1
     ## open file and load object
-    with open(path, 'rb') as picklein:
-        obj = pickle.load(picklein)
-    return obj
+    with open(path, 'rb') as f_in:
+        for _ in range(0, input_size, max_bytes):
+            bytes_in += f_in.read(max_bytes)
+    return pickle.loads(bytes_in)
 
 def get_run_dirs(dir_prefix="failed_"):
     """
