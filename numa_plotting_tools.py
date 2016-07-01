@@ -3,6 +3,7 @@ import os
 import re
 import pickle
 import warnings
+import sys
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -658,9 +659,15 @@ class UnstNumaCsvData(NumaCsvData):
     """
     sub class of numa_plotting_tools.NumaCsvData
       modifies __init__ to interpolate data on to a regular grid
+
+      `delta_x` sets interpolation grid spacing in x in the low res area
+        offshore and far onshore
+      `delta_y` sets interpolation grid spacing in y everywhere and in x in the
+        high res area at the shore
     """
     def __init__(self, csv_file_path, xcoord_header='xcoord',
-                 ycoord_header='ycoord', delta_x=5.):
+                 ycoord_header='ycoord', high_res_range=[-500, 500],
+                 delta_x=50., delta_y=5.):
         ## load data
         self.csv_file_path = csv_file_path
         self.headers = self._get_headers(csv_file_path)
@@ -674,15 +681,23 @@ class UnstNumaCsvData(NumaCsvData):
             self.headers.remove(ycoord_header)
             x_unst = getattr(self, xcoord_header)
             y_unst = getattr(self, ycoord_header)
-            x_st = np.arange(np.min(x_unst), np.max(x_unst), delta_x)
-            y_st = np.arange(np.min(y_unst), np.max(y_unst), delta_x)
+            x_st = np.hstack((
+                np.arange(np.min(x_unst), high_res_range[0], delta_x),
+                np.arange(high_res_range[0], high_res_range[1], delta_y),
+                np.arange(high_res_range[1], np.max(x_unst), delta_x)
+            ))
+            y_st = np.arange(np.min(y_unst), np.max(y_unst), delta_y)
             self.nelx = len(x_st)
             self.nely = len(y_st)
             self.x, self.y = np.meshgrid(x_st, y_st)
             ## for each attribute interpolate onto grid
             for att in self.headers:
                 temp = getattr(self, att)
-                temp = scipy.interpolate.griddata((x_unst, y_unst), temp, (self.x, self.y))
+                temp = scipy.interpolate.griddata(
+                    (x_unst, y_unst),
+                    temp,
+                    (self.x, self.y)
+                )
                 setattr(self, att, temp)
             ## create velo_mag attribute for velocity magnitude
             try:
@@ -752,6 +767,7 @@ class NumaRunData:
         for csv_file_name in csv_file_names:
             csv_file_path = os.path.join(self.run_dir_path, csv_file_name)
             if unstructured:
+                print(csv_file_name)
                 ncd = UnstNumaCsvData(csv_file_path)
             else:
                 ncd = NumaCsvData(csv_file_path)
