@@ -767,7 +767,6 @@ class NumaRunData:
         for csv_file_name in csv_file_names:
             csv_file_path = os.path.join(self.run_dir_path, csv_file_name)
             if unstructured:
-                print(csv_file_name)
                 ncd = UnstNumaCsvData(csv_file_path)
             else:
                 ncd = NumaCsvData(csv_file_path)
@@ -1196,8 +1195,16 @@ class NumaRunData:
     ):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
-        p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
+        try:
+            p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
                  figure=figure_instance, ls="None", mew=0)[0]
+        ## remove NaNs from shore_max
+        except ValueError:
+            filtr = np.logical_not(np.isnan(self.shore_max))
+            shore_max = self.shore_max[filtr]
+            t = self.t[filtr]
+            p = plt.plot(shore_max, t, c=color, marker=marker,
+                         figure=figure_instance, ls="None", mew=0)[0]
         p.set_label(self.legend_label(regex_string=regex_string))
         return figure_instance
 
