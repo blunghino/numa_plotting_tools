@@ -370,11 +370,11 @@ class NumaCsvData:
 
     def plot_height(self, figsize=(12,7), height='height'):
         """
-        pcolor plot of height
+        pcolormesh plot of height
         """
         H = getattr(self, height)
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(self.x, self.y, H, cmap='viridis')
+        plt.pcolormesh(self.x, self.y, H, cmap='viridis')
         return fig
 
     def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
@@ -414,9 +414,9 @@ class NumaCsvData:
         else:
             ax = ax_instance
         if clims:
-            P = ax.pcolor(X, Y, depth, cmap=cmap, vmin=clims[0], vmax=clims[1])
+            P = ax.pcolormesh(X, Y, depth, cmap=cmap, vmin=clims[0], vmax=clims[1])
         else:
-            P = ax.pcolor(X, Y, depth, cmap=cmap)
+            P = ax.pcolormesh(X, Y, depth, cmap=cmap)
         Q = ax.quiver(X[:,::plot_every], Y[:,::plot_every], U[:,::plot_every],
                       V[:,::plot_every], color="k")
         qk = ax.quiverkey(Q, 0.9, 0.95, 0.5, r'$0.5 \frac{m}{s}$',
@@ -465,9 +465,9 @@ class NumaCsvData:
         else:
             ax = ax_instance
         if clims:
-            P = ax.pcolor(X, Y, devH, cmap=cmap, vmin=clims[0], vmax=clims[1])
+            P = ax.pcolormesh(X, Y, devH, cmap=cmap, vmin=clims[0], vmax=clims[1])
         else:
-            P = ax.pcolor(X, Y, devH, cmap=cmap)
+            P = ax.pcolormesh(X, Y, devH, cmap=cmap)
         Q = ax.quiver(X[:,::plot_every], Y[:,::plot_every], U[:,::plot_every], V[:,::plot_every], color="k")
         qk = ax.quiverkey(Q, 0.9, 0.95, 1, r'$1 \frac{m}{s}$',
                    labelpos='E',
@@ -539,7 +539,7 @@ class NumaCsvData:
                           uvelo='uvelo', vvelo='vvelo', height='height',
                           bathy='bathymetry'):
         """
-        pcolor plot of bed shear stress
+        pcolormesh plot of bed shear stress
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
@@ -563,7 +563,7 @@ class NumaCsvData:
         ## plot
         fig = plt.figure(figsize=figsize)
         ax = plt.subplot(111)
-        ax.pcolor(X, Y, tau, cmap=cmap)
+        ax.pcolormesh(X, Y, tau, cmap=cmap)
         cbar = plt.colorbar()
         cbar.set_label('Shear Stress [N/m^2]')
         ## add outline of bathymetry
@@ -577,7 +577,7 @@ class NumaCsvData:
                             uvelo='uvelo', vvelo='vvelo', height='height',
                             bathy='bathymetry'):
         """
-        pcolor plot of kinetic energy
+        pcolormesh plot of kinetic energy
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
@@ -596,7 +596,7 @@ class NumaCsvData:
             Y = self.y
         Ek = 0.5 * (H - B) * (U**2 + V**2)
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(X, Y, Ek, cmap=cmap)
+        plt.pcolormesh(X, Y, Ek, cmap=cmap)
         cbar = plt.colorbar()
         cbar.set_label('Kinetic Energy [m^2/s^2]')
         plt.xlabel('x [m]')
@@ -607,7 +607,7 @@ class NumaCsvData:
                     height='height', bathy='bathymetry',
                     uvelo='uvelo', vvelo='vvelo'):
         """
-        pcolor plot of total energy
+        pcolormesh plot of total energy
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
@@ -628,7 +628,7 @@ class NumaCsvData:
         Ep = g * H
         E = Ek + Ep
         fig = plt.figure(figsize=figsize)
-        plt.pcolor(X, Y, E, cmap=cmap)
+        plt.pcolormesh(X, Y, E, cmap=cmap)
         cbar = plt.colorbar()
         cbar.set_label('Energy [m^2/s^2]')
         plt.xlabel('x [m]')
@@ -638,7 +638,7 @@ class NumaCsvData:
     def plot_bathy(self, figsize=(14,7), bathy='bathymetry', 
                    xmin=None, cmap='viridis'):
         """
-        plot bathymetry as pcolor
+        plot bathymetry as pcolormesh
         """
         B = getattr(self, bathy)
         X = self.x
@@ -652,7 +652,7 @@ class NumaCsvData:
         ax = fig.add_subplot(111)
         ax.set_xlabel('x [m]')
         ax.set_ylabel('y [m]')
-        ax.pcolor(X, Y, B, cmap=cmap)
+        ax.pcolormesh(X, Y, B, cmap=cmap)
         return fig
 
     def plot_bathy_3D(self, figsize=(14,7), xmin=None,
