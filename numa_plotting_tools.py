@@ -146,7 +146,7 @@ def remove_outliers(array, n_stds):
     std = array.std()
     return array[np.abs(array) <= mn + n_stds*std]
 
-def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
+def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_type='max',
                                 spacing='dist', function="get_kinetic_energy",
                                 y_label="", sort_type=str, x_spacing=True,
                                 filter_outliers=None, x_width=None,
@@ -165,7 +165,7 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
         cmap = plt.get_cmap(colormap)
         colors = [cmap(val) for val in cmap_vals]
         markers = 'Hs^Dvo'
-        markers *= int(np.ceil(n/len(marker)))
+        markers *= int(np.ceil(n/len(markers)))
     ## sort input arguments by value
     inds = np.argsort([n.get_sort_val('name', sort_type) for n in nrds])
     nrds = np.asarray(nrds)[inds]
@@ -176,8 +176,8 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
     ## loop over NumaRunData objects
     for i, nrd in enumerate(nrds):
         ## call function to calc y value
-        y_val = getattr(nrd, function)(x_coord, y_coord, plot_max,
-                                       filter_outliers, x_width)
+        y_val = getattr(nrd, function)(x_coord, y_coord, plot_type, x_width,
+                                       filter_outliers)
         ## get spacing vals from run_dir_path attribute
         re_obj = re.compile('\d+')
         m = re_obj.findall(nrd.run_dir_path)
@@ -211,7 +211,7 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
             )  
         if x_val > max_x:
             max_x = x_val
-        elif x_val < min_x or min_x < 0:
+        if x_val < min_x or min_x < 0:
             min_x = x_val
         hands.append(p)  
         labs.append(nrd.legend_label())
@@ -220,6 +220,50 @@ def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_max=True,
     plt.xlabel("{}distance between obstacle centers [m]".format(x_label_prefix))
     plt.ylabel(y_label)
     fig.legend(hands, labs, loc=5, numpoints=1, ncol=ncol)
+    return fig
+
+def plot_function_val_timeseries(nrds, x_coord, x_width=None, y_label="[]",
+                                 figsize=(18,8), t_0=0, t_f=None,
+                                 colormap='plasma', color_dict=None,
+                                 y_coord='avg', function="get_kinetic_energy",
+                                 plot_type="timeseries", filter_outliers=None):
+    """
+    call the `function` method of each NumaRunData object in `nrds`
+    plot timeseries on one axis and return fig
+    """
+    ## set up x_axis data
+    if t_f is None:
+        t_f = nrds[0].t_f
+    x_val = np.arange(0, t_f, nrds[0].t_restart)
+    ind = x_val.searchsorted(t_0)
+    x_val = x_val[ind:]
+    n_vals = len(x_val)
+    n_runs = len(nrds)
+    ## set up colors
+    if not color_dict:
+        cmap_vals = np.linspace(0, 255, n_runs, dtype=int)
+        cmap = plt.get_cmap(colormap)
+        colors = [cmap(val) for val in cmap_vals]
+    markers = 'Hs^Dvo'
+    markers *= int(np.ceil(n_runs/len(markers)))
+    ## loop over NumaRunData objects and plot results
+    fig = plt.figure(figsize=figsize)
+    for i, nrd in enumerate(nrds):
+        ## call function to calc y value
+        y_val = getattr(nrd, function)(x_coord, y_coord, plot_type, x_width,
+                                       filter_outliers)
+        if plot_type == "timeseries_min_max":
+            plt.plot(x_val, y_val[0,ind:ind+n_vals], color=colors[i],
+                     marker=markers[i], label=nrd.legend_label())
+            plt.plot(x_val, y_val[1,ind:ind+n_vals], '--', color=colors[i])
+            plt.plot(x_val, y_val[2,ind:ind+n_vals], color=colors[i])
+        else:
+            plt.plot(x_val, y_val[ind:ind+n_vals], color=colors[i],
+                 marker=markers[i], label=nrd.legend_label())
+    plt.legend(loc=6, numpoints=1)
+    plt.xlabel("Time [s]")
+    plt.ylabel(y_label.capitalize())
+    plt.title("x = {}".format(x_coord))
     return fig
 
 def plot_shore_max_timeseries(nrds, figsize=(18,8), colormap='viridis', sort_type=int):
@@ -489,6 +533,45 @@ class NumaCsvData:
             p = ax.streamplot(Xi[0,:], Yi[:,0], Ui, Vi, norm=norm,
                 arrowsize=arrowsize, color=speedi, cmap=cmap, density=density)
             return p
+
+    def plot_shear_stress(self, vonkarman=0.41, rho_0=1000, z_0=2e-5,
+                          figsize=(12,7), cmap='viridis', xmin=None,
+                          uvelo='uvelo', vvelo='vvelo', height='height',
+                          bathy='bathymetry'):
+        """
+        pcolor plot of bed shear stress
+        """
+        U = getattr(self, uvelo)
+        V = getattr(self, vvelo)
+        H = getattr(self, height)
+        B = getattr(self, bathy)
+        if xmin is not None:
+            ind = self.x[0,:].searchsorted(xmin)
+            U = U[:,ind:]
+            V = V[:,ind:]
+            H = H[:,ind:]
+            B = B[:,ind:]
+            X = self.x[:,ind:]
+            Y = self.y[:,ind:]
+        else:
+            X = self.x
+            Y = self.y
+        ## calculations
+        h = H - B
+        C_D = ((1/vonkarman) * (np.log(h/z_0) + (z_0/h) - 1))**(-2)
+        tau = rho_0 * C_D * (U**2 + V**2)
+        ## plot
+        fig = plt.figure(figsize=figsize)
+        ax = plt.subplot(111)
+        ax.pcolor(X, Y, tau, cmap=cmap)
+        cbar = plt.colorbar()
+        cbar.set_label('Shear Stress [N/m^2]')
+        ## add outline of bathymetry
+        obstacle_outlines = ObstacleOutlines(X, Y, B)
+        ax = add_topo_contours(ax, obstacle_outlines)
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        return fig
 
     def plot_kinetic_energy(self, figsize=(12,7), cmap='viridis', xmin=None,
                             uvelo='uvelo', vvelo='vvelo', height='height',
@@ -1042,8 +1125,8 @@ class NumaRunData:
         leg.legendHandles[0]._sizes = [30]
         return fig
     
-    def get_kinetic_energy(self, x_coord, y_coord='avg', return_max=True,
-                           filter_outliers=None, x_width=None,
+    def get_kinetic_energy(self, x_coord, y_coord='avg', return_type='max',
+                            x_width=None, filter_outliers=None,
                             uvelo='uvelo', vvelo='vvelo',
                             height='height', bathy='bathymetry'):
         """
@@ -1053,6 +1136,8 @@ class NumaRunData:
         else return the time average value  
         """
         energy = []
+        min_energy = []
+        max_energy = []
         for ob in self.data_obj_list:
             ind = ob.x[0,:].searchsorted(x_coord)
             U = getattr(ob, uvelo)
@@ -1074,7 +1159,11 @@ class NumaRunData:
                 ## remove data more than filter_outliers standard deviations from mean
                 if filter_outliers is not None:
                     E = remove_outliers(E, filter_outliers)
+                if return_type == "timeseries_min_max":
+                    min_E = np.nanmin(E)
+                    max_E = np.nanmax(E)
                 E = np.mean(E)
+
             else:
                 if y_coord == "mid":
                     ind_y = int(np.ceil(ob.x.shape[0]/2.))                 
@@ -1087,16 +1176,23 @@ class NumaRunData:
                 E = 0.5 * (H-B) * (U**2+V**2)
 
             energy.append(E)
-        energy = np.asarray(energy)
+            if return_type == "timeseries_min_max" and y_coord == 'avg':
+                min_energy.append(min_E)
+                max_energy.append(max_E)
+
         ## instantaneous max
-        if return_max:
+        if return_type == 'max':
             return np.nanmax(energy)
         ## return the time average value
-        else:
-            return energy.mean()
+        elif return_type == 'mean':
+            return np.mean(energy)
+        elif return_type == 'timeseries':
+            return np.asarray(energy)
+        elif return_type == "timeseries_min_max":
+            return np.asarray((energy, min_energy, max_energy))
 
-    def get_velocity(self, x_coord, y_coord='avg', return_max=True, 
-                           filter_outliers=None, x_width=None,
+    def get_velocity(self, x_coord, y_coord='avg', return_type='max',
+                            x_width=None, filter_outliers=None,
                             uvelo='uvelo', vvelo='vvelo'):
         """
         return the velocity at (x_coord, y_coord) 
@@ -1105,6 +1201,8 @@ class NumaRunData:
         else return the time average value  
         """
         velocity = []
+        min_velocity = []
+        max_velocity = []
         for ob in self.data_obj_list:
             ind = ob.x[0,:].searchsorted(x_coord)
             U = getattr(ob, uvelo)
@@ -1122,6 +1220,9 @@ class NumaRunData:
                 ## remove data more than filter_outliers standard deviations from mean
                 if filter_outliers is not None:
                     vel = remove_outliers(vel, filter_outliers)
+                if return_type == "timeseries_min_max":
+                    min_v = np.nanmin(vel)
+                    max_v = np.nanmax(vel)
                 vel = np.mean(vel)
             else:
                 if y_coord == "mid":
@@ -1132,16 +1233,22 @@ class NumaRunData:
                 V = V[ind_y,ind]
                 vel = np.sqrt(U**2+V**2)
             velocity.append(vel)
-        velocity = np.asarray(velocity)
+            if return_type == "timeseries_min_max" and y_coord == 'avg':
+                min_velocity.append(min_v)
+                max_velocity.append(max_v)
         ## instantaneous max
-        if return_max:
+        if return_type == 'max':
             return np.nanmax(velocity)
         ## return the time average value
-        else:
-            return velocity.mean()
+        elif return_type == 'mean':
+            return np.mean(velocity)
+        elif return_type == 'timeseries':
+            return np.asarray(velocity)
+        elif return_type == "timeseries_min_max":
+            return np.asarray((velocity, min_velocity, max_velocity))
 
-    def get_height(self, x_coord, y_coord='avg', return_max=True, 
-                            filter_outliers=None, x_width=None,
+    def get_height(self, x_coord, y_coord='avg', return_type='max',
+                             x_width=None, filter_outliers=None,
                            height='height', bathy='bathymetry'):
         """
         return the kinetic energy at (x_coord, y_coord) 
@@ -1150,6 +1257,8 @@ class NumaRunData:
         else return the time average value  
         """
         hgt = []
+        min_hgt = []
+        max_hgt = []
         for ob in self.data_obj_list:
             ind = ob.x[0,:].searchsorted(x_coord)
             H = getattr(ob, height)
@@ -1167,6 +1276,9 @@ class NumaRunData:
                 ## remove data more than filter_outliers standard deviations from mean
                 if filter_outliers is not None:
                     h = remove_outliers(h, filter_outliers)
+                if return_type == "timeseries_min_max":
+                    min_h = np.nanmin(h)
+                    max_h = np.nanmax(h)
                 h = np.mean(h)
             else:
                 if y_coord == "mid":
@@ -1177,13 +1289,19 @@ class NumaRunData:
                 B = B[ind_y,ind]
                 h = H-B
             hgt.append(h)
-        hgt = np.asarray(hgt)
+            if return_type == "timeseries_min_max" and y_coord == 'avg':
+                min_hgt.append(min_h)
+                max_hgt.append(max_h)
         ## instantaneous max
-        if return_max:
+        if return_type == 'max':
             return np.nanmax(hgt)
         ## return the time average value
-        else:
-            return hgt.mean()
+        elif return_type == 'mean':
+            return np.mean(hgt)
+        elif return_type == 'timeseries':
+            return np.asarray(hgt)
+        elif return_type == "timeseries_min_max":
+            return np.asarray((hgt, min_hgt, max_hgt))
 
     def plot_shore_max_timeseries(
             self,
@@ -1198,13 +1316,23 @@ class NumaRunData:
         try:
             p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
                  figure=figure_instance, ls="None", mew=0)[0]
-        ## remove NaNs from shore_max
+        ## big ugly hack to get around https://github.com/scikit-learn/scikit-learn/issues/5040
         except ValueError:
-            filtr = np.logical_not(np.isnan(self.shore_max))
-            shore_max = self.shore_max[filtr]
-            t = self.t[filtr]
-            p = plt.plot(shore_max, t, c=color, marker=marker,
-                         figure=figure_instance, ls="None", mew=0)[0]
+            p = plt.scatter(self.shore_max, self.t, c=color)
+        #     filtr = np.logical_not(np.isnan(self.shore_max))
+        #     shore_max = self.shore_max[filtr]
+        #     t = self.t[filtr]
+        #     try:
+        #         fig_temp = plt.figure("temp")
+        #         plt.plot(shore_max, t)
+        #         plt.close("temp")
+        #     except ValueError:
+        #         pass
+        #     ## set current figure back to the one you want
+        #     plt.figure(figure_instance.number)
+        #     p = plt.plot(shore_max, t, c=color, marker=marker,
+        #                  ls="None", mew=0)[0]
+
         p.set_label(self.legend_label(regex_string=regex_string))
         return figure_instance
 
