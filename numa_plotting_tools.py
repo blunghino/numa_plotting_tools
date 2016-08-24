@@ -9,6 +9,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
+from matplotlib.colors import LogNorm
 import matplotlib.animation
 import matplotlib as mpl
 import scipy.interpolate
@@ -80,7 +81,7 @@ class ObstacleOutlines:
     """
     class to hold obstacle outline data
     """
-    def __init__(self, X, Y, B, x_range=(0,500)):
+    def __init__(self, X, Y, B, x_range=(0,300)):
         """
         use bathy to find obstacle base contours using constant slope of domain
         """
@@ -534,7 +535,7 @@ class NumaCsvData:
                 arrowsize=arrowsize, color=speedi, cmap=cmap, density=density)
             return p
 
-    def plot_shear_stress(self, vonkarman=0.41, rho_0=1000, z_0=2e-5,
+    def plot_shear_stress(self, von_karman=0.41, rho_0=1000, z_0=2e-5,
                           figsize=(12,7), cmap='viridis', xmin=None,
                           uvelo='uvelo', vvelo='vvelo', height='height',
                           bathy='bathymetry'):
@@ -558,17 +559,18 @@ class NumaCsvData:
             Y = self.y
         ## calculations
         h = H - B
-        C_D = ((1/vonkarman) * (np.log(h/z_0) + (z_0/h) - 1))**(-2)
+        C_D = ((1/von_karman) * (np.log(h/z_0) + (z_0/h) - 1))**(-2)
         tau = rho_0 * C_D * (U**2 + V**2)
-        ## plot
+        ## NaNs occur in C_D when dividing by zero height
+        tau[np.isnan(tau)] = 0
         fig = plt.figure(figsize=figsize)
         ax = plt.subplot(111)
-        ax.pcolormesh(X, Y, tau, cmap=cmap)
-        cbar = plt.colorbar()
-        cbar.set_label('Shear Stress [N/m^2]')
         ## add outline of bathymetry
         obstacle_outlines = ObstacleOutlines(X, Y, B)
         ax = add_topo_contours(ax, obstacle_outlines)
+        pcm = ax.pcolormesh(X, Y, tau, cmap=cmap, norm=LogNorm())
+        cbar = plt.colorbar(pcm)
+        cbar.set_label('Shear Stress [N/m^2]')
         ax.set_xlabel('x [m]')
         ax.set_ylabel('y [m]')
         return fig
