@@ -261,7 +261,7 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, y_label="[]",
         else:
             plt.plot(x_val, y_val[ind:ind+n_vals], color=colors[i],
                  marker=markers[i], label=nrd.legend_label())
-    plt.legend(loc=6, numpoints=1)
+    plt.legend(loc='center right', numpoints=1)
     plt.xlabel("Time [s]")
     plt.ylabel(y_label.capitalize())
     plt.title("x = {}".format(x_coord))
@@ -298,6 +298,43 @@ def plot_shore_max_timeseries(nrds, figsize=(18,8), colormap='viridis', sort_typ
     fig.legend(hands, labs, loc=5, numpoints=1, ncol=2)
     return fig
 
+def subsample_arrays_in_x(x_range, X, *arrays):
+    """
+    given x-coordinates `X` and a range of values to subsample `x_range`
+    filter `X` and all arrays in `*arrays` by range `x_range`
+    return list beginning with `X` and followed by all arrays in ` *arrays`
+    """
+    min_x = X[0,:].searchsorted(x_range[0])
+    if x_range[1] == 'end':
+        max_x = -1
+    else:
+        max_x = X[0,:].searchsorted(x_range[1])
+    out = [X[:,min_x:max_x]]
+    for arr in arrays:
+        out.append(arr[:,min_x:max_x])
+    return out
+
+def calc_bottom_shear_stress(U, V, H, B,
+                             von_karman=0.41, nu=1.36e-6, D_50=2e-4,
+                             rho_0=1027, rho_s=2650, g=9.81):
+    """
+    calculate the bottom shear stress and critical bottom shear stress
+    using formulations from Soulsby, 1997, Dynamics of Marine Sands, p104
+
+    return `tau`, bottom shear stress values, of same type as input args
+    and `tau_crit` single value for critical bottom shear stress
+    """
+    ## calculate bottom shear stress
+    z_0 = D_50 / 12
+    h = H - B
+    C_D = ((1/von_karman) * (np.log(h/z_0) + (z_0/h) - 1))**(-2)
+    tau = rho_0 * C_D * (U**2 + V**2)
+    ## calculate critical bottom shear stress for fluid/sediment characteristics
+    G = rho_s / rho_0
+    D_str = (g*(G-1)/nu**2)**(1/3) * D_50
+    shields_crit = 0.3/(1+1.2*D_str) + 0.055*(1-np.exp(-0.02*D_str))
+    tau_crit = shields_crit * g * D_50 * (rho_s-rho_0)
+    return tau, tau_crit
 
 class NumaCsvData:
     """
@@ -325,14 +362,15 @@ class NumaCsvData:
                 temp = getattr(self, att).reshape((self.nely,self.nelx))
                 setattr(self, att, temp)
             ## create velo_mag attribute for velocity magnitude
-            try:
-                u = getattr(self, 'uvelo')
-                v = getattr(self, 'vvelo')
-                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
-            except AttributeError as e:
-                print(e)
-                raise warnings.warning(
-                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
+            # try:
+            #     u = getattr(self, 'uvelo')
+            #     v = getattr(self, 'vvelo')
+            #     setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+            #     setattr(self, 'kinetic_energy', )
+            # except AttributeError as e:
+            #     print(e)
+            #     raise warnings.warning(
+            #         "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
         else:
             ## can't detect x and/or y coord data
             raise warnings.warning(
@@ -380,7 +418,7 @@ class NumaCsvData:
 
     def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
                                 uvelo='uvelo', vvelo='vvelo', bathy="bathymetry", cmap="viridis",
-                                xmin=None, boolean_depth=None, ax_instance=None, clims=None):
+                                x_range=None, boolean_depth=None, ax_instance=None, clims=None):
         """
         plot the depth
         overlay velocity vectors
@@ -389,18 +427,11 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         H = getattr(self, height)
         B = getattr(self, bathy)
-        if xmin is not None:
-            ind = self.x[0,:].searchsorted(xmin)
-            U = U[:,ind:]
-            V = V[:,ind:]
-            H = H[:,ind:]
-            B = B[:,ind:]
-            X = self.x[:,ind:]
-            Y = self.y[:,ind:]
-        else:
-            X = self.x
-            Y = self.y
+        X = self.x
+        Y = self.y
         depth = H - B
+        if x_range is not None:
+            X, Y, U, V, depth = subsample_arrays_in_x(x_range, X, Y, U, V, depth)
         ## convert the depth to 0 or 1 depending whether or not there is water there
         if boolean_depth is not None:
             filtr = depth > boolean_depth
@@ -433,7 +464,7 @@ class NumaCsvData:
 
     def plot_devheight_velocity(self, figsize=(12,7), height='height', plot_every=1, 
                                 uvelo='uvelo', vvelo='vvelo', bathy="bathymetry", cmap="viridis",
-                                xmin=None, stillwater=None, ax_instance=None, clims=None):
+                                x_range=None, stillwater=None, ax_instance=None, clims=None):
         """
         plot the deviation in height from still water
         overlay velocity vectors
@@ -442,17 +473,9 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         H = getattr(self, height)
         B = getattr(self, bathy)
-        if xmin is not None:
-            ind = self.x[0,:].searchsorted(xmin)
-            U = U[:,ind:]
-            V = V[:,ind:]
-            H = H[:,ind:]
-            B = B[:,ind:]
-            X = self.x[:,ind:]
-            Y = self.y[:,ind:]
-        else:
-            X = self.x
-            Y = self.y
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
         if stillwater is None:
             stillwater = B.copy()
             stillwater[B < 0] = 0
@@ -492,22 +515,9 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         ## for obstacle outlines only
         B = getattr(self, bathy)
+        X, Y = self.x, self.y
         if x_range is not None:
-            min_x = self.x[0,:].searchsorted(x_range[0])
-            if x_range[1] == 'end':
-                max_x = -1
-            else:
-                max_x = self.x[0,:].searchsorted(x_range[1])
-            U = U[:,min_x:max_x]
-            V = V[:,min_x:max_x]
-            X = self.x[:,min_x:max_x]
-            Y = self.y[:,min_x:max_x]
-            B = B[:,min_x:max_x]
-        else:
-            X = self.x
-            Y = self.y
-            x_range = (X[0,0], X[0,-1])
-        
+            X, Y, U, V, B = subsample_arrays_in_x(x_range, X, Y, U, V, B)
         ## interpolate onto evenly spaced grid
         if grid_spec:
             ## option to pass in precomputed object of grid_for_interpolation function
@@ -527,7 +537,6 @@ class NumaCsvData:
             ax = add_topo_contours(ax, obstacle_outlines)
             p = ax.streamplot(Xi[0,:], Yi[:,0], Ui, Vi, color=speedi, 
                 norm=norm, cmap=cmap, arrowsize=arrowsize, density=density)
-            # ax.set_xlim(left=x_range[0], right=x_range[1])
             return fig
         else:
             ax = ax_instance
@@ -535,8 +544,7 @@ class NumaCsvData:
                 arrowsize=arrowsize, color=speedi, cmap=cmap, density=density)
             return p
 
-    def plot_shear_stress(self, von_karman=0.41, rho_0=1000, z_0=2e-5,
-                          figsize=(12,7), cmap='viridis', xmin=None,
+    def plot_shear_stress(self, figsize=(12,7), cmap='plasma', x_range=None,
                           uvelo='uvelo', vvelo='vvelo', height='height',
                           bathy='bathymetry'):
         """
@@ -546,21 +554,11 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         H = getattr(self, height)
         B = getattr(self, bathy)
-        if xmin is not None:
-            ind = self.x[0,:].searchsorted(xmin)
-            U = U[:,ind:]
-            V = V[:,ind:]
-            H = H[:,ind:]
-            B = B[:,ind:]
-            X = self.x[:,ind:]
-            Y = self.y[:,ind:]
-        else:
-            X = self.x
-            Y = self.y
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
         ## calculations
-        h = H - B
-        C_D = ((1/von_karman) * (np.log(h/z_0) + (z_0/h) - 1))**(-2)
-        tau = rho_0 * C_D * (U**2 + V**2)
+        tau, tau_crit = calc_bottom_shear_stress(U, V, H, B)
         ## NaNs occur in C_D when dividing by zero height
         tau[np.isnan(tau)] = 0
         fig = plt.figure(figsize=figsize)
@@ -568,14 +566,15 @@ class NumaCsvData:
         ## add outline of bathymetry
         obstacle_outlines = ObstacleOutlines(X, Y, B)
         ax = add_topo_contours(ax, obstacle_outlines)
-        pcm = ax.pcolormesh(X, Y, tau, cmap=cmap, norm=LogNorm())
+        pcm = ax.pcolormesh(X, Y, tau, cmap=cmap, vmin=tau_crit, norm=LogNorm())
         cbar = plt.colorbar(pcm)
         cbar.set_label('Shear Stress [N/m^2]')
         ax.set_xlabel('x [m]')
         ax.set_ylabel('y [m]')
+        plt.title(self.csv_file_path)
         return fig
 
-    def plot_kinetic_energy(self, figsize=(12,7), cmap='viridis', xmin=None,
+    def plot_kinetic_energy(self, figsize=(12,7), cmap='plasma', x_range=None,
                             uvelo='uvelo', vvelo='vvelo', height='height',
                             bathy='bathymetry'):
         """
@@ -585,17 +584,9 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         H = getattr(self, height)
         B = getattr(self, bathy)
-        if xmin is not None:
-            ind = self.x[0,:].searchsorted(xmin)
-            U = U[:,ind:]
-            V = V[:,ind:]
-            H = H[:,ind:]
-            B = B[:,ind:]
-            X = self.x[:,ind:]
-            Y = self.y[:,ind:]
-        else:
-            X = self.x
-            Y = self.y
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
         Ek = 0.5 * (H - B) * (U**2 + V**2)
         fig = plt.figure(figsize=figsize)
         plt.pcolormesh(X, Y, Ek, cmap=cmap)
@@ -605,7 +596,7 @@ class NumaCsvData:
         plt.ylabel('y [m]')
         return fig
 
-    def plot_energy(self, figsize=(12,7), cmap='viridis', xmin=None,
+    def plot_energy(self, figsize=(12,7), cmap='viridis', x_range=None,
                     height='height', bathy='bathymetry',
                     uvelo='uvelo', vvelo='vvelo'):
         """
@@ -615,16 +606,9 @@ class NumaCsvData:
         V = getattr(self, vvelo)
         H = getattr(self, height)
         B = getattr(self, bathy)
-        if xmin is not None:
-            ind = self.x[0,:].searchsorted(xmin)
-            U = U[:,ind:]
-            V = V[:,ind:]
-            H = H[:,ind:]
-            X = self.x[:,ind:]
-            Y = self.y[:,ind:]
-        else:
-            X = self.x
-            Y = self.y
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
         g = 9.81
         Ek = 0.5 * (H - B) * (U**2 + V**2)
         Ep = g * H
@@ -638,18 +622,15 @@ class NumaCsvData:
         return fig
 
     def plot_bathy(self, figsize=(14,7), bathy='bathymetry', 
-                   xmin=None, cmap='viridis'):
+                   x_range=None, cmap='viridis'):
         """
         plot bathymetry as pcolormesh
         """
         B = getattr(self, bathy)
         X = self.x
         Y = self.y
-        if xmin is not None:
-            ind = X[0,:].searchsorted(xmin)
-            B = B[:,ind:]
-            X = X[:,ind:]
-            Y = Y[:,ind:]
+        if x_range is not None:
+            X, Y, B = subsample_arrays_in_x(x_range, X, Y, B)
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111)
         ax.set_xlabel('x [m]')
@@ -657,19 +638,15 @@ class NumaCsvData:
         ax.pcolormesh(X, Y, B, cmap=cmap)
         return fig
 
-    def plot_bathy_3D(self, figsize=(14,7), xmin=None,
+    def plot_bathy_3D(self, figsize=(14,7), x_range=None,
                      bathy='bathymetry', cmap='viridis', stride=1):
         """
         plot bathymetry as 3D surface
         """
         B = getattr(self, bathy)        
-        X = self.x
-        Y = self.y
-        if xmin is not None:
-            ind = X[0,:].searchsorted(xmin)
-            B = B[:,ind:]
-            X = X[:,ind:]
-            Y = Y[:,ind:]
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, B = subsample_arrays_in_x(x_range, X, Y, B)
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111, projection='3d')
         ax.set_xlabel('x [m]')
@@ -685,21 +662,16 @@ class NumaCsvData:
 
     def plot_height_3D(self, figsize=(14,7), return_fig=True, ax_instance=None,
                        height='height', bathy='bathymetry', clims=None,
-                       cmap='viridis', xmin=None, timestamp=None, stride=1):
+                       cmap='viridis', x_range=None, timestamp=None, stride=1):
         """
         plot height as 3D surface and color by depth
         (optionally) bathymetry as 3D surfaces
         """
         H = getattr(self, height)
         B = getattr(self, bathy)        
-        X = self.x
-        Y = self.y
-        if xmin is not None:
-            ind = X[0,:].searchsorted(xmin)
-            H = H[:,ind:]
-            B = B[:,ind:]
-            X = X[:,ind:]
-            Y = Y[:,ind:]
+        X, Y = self.x, self.y
+        if x_range is not None:
+            X, Y, H, B = subsample_arrays_in_x(x_range, X, Y, H, B)
         ## set up color map
         depth = H - B
         colormap = plt.get_cmap(cmap)
@@ -785,14 +757,14 @@ class UnstNumaCsvData(NumaCsvData):
                 )
                 setattr(self, att, temp)
             ## create velo_mag attribute for velocity magnitude
-            try:
-                u = getattr(self, 'uvelo')
-                v = getattr(self, 'vvelo')
-                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
-            except AttributeError as e:
-                print(e)
-                raise warnings.warning(
-                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
+            # try:
+            #     u = getattr(self, 'uvelo')
+            #     v = getattr(self, 'vvelo')
+            #     setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+            # except AttributeError as e:
+            #     print(e)
+            #     raise warnings.warning(
+            #         "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
         else:
             ## can't detect x and/or y coord data
             raise warnings.warning(
@@ -842,7 +814,7 @@ class NumaRunData:
                 csv_file_root, i) for i in range(self.n_outputs)]
             self.data_obj_list = self._load_numa_csv_data(csv_file_names,
                                                           unstructured=unstructured)
-        self.t, self.shore_max = self._load_shore_data(shore_file_name)
+        self.t, self.shore_max, self.shore_min, self.shore_mean = self._load_shore_data(shore_file_name)
 
     def _load_numa_csv_data(self, csv_file_names, unstructured=False):
         """
@@ -864,13 +836,20 @@ class NumaRunData:
         """
         t = []
         shore_max = []
+        shore_min = []
+        shore_mean = []
         shore_file_path = os.path.join(self.run_dir_path, shore_file_name)
         with open(shore_file_path, 'r') as file:
             for i, r in enumerate(file):
                 r = r.strip().lstrip().split()
                 t.append(float(r[0]))
                 shore_max.append(float(r[1]))
-        return np.asarray(t), np.asarray(shore_max)
+                try:
+                    shore_min.append(float(r[2]))
+                    shore_mean.append(float(r[3]))
+                except IndexError:
+                    pass
+        return np.asarray(t), np.asarray(shore_max), np.asarray(shore_min), np.asarray(shore_mean)
 
     def get_sort_val(self, sort_att='sort_val', sort_type=None):
         try:
@@ -918,20 +897,10 @@ class NumaRunData:
             start = 0
         ob0 = obs_to_plot[0]
         B = getattr(ob0, bathy)
+        X, Y = ob0.x, ob0.y
         ## set up for interpolated grid and obstacle outlines
         if x_range is not None:
-            min_x = ob0.x[0,:].searchsorted(x_range[0])
-            if x_range[1] == 'end':
-                max_x = -1
-            else:
-                max_x = ob0.x[0,:].searchsorted(x_range[1])
-            X = ob0.x[:,min_x:max_x]
-            Y = ob0.y[:,min_x:max_x]
-            B = B[:,min_x:max_x]
-        else:
-            X = ob0.x
-            Y = ob0.y
-            x_range = (X[0,0], X[0,-1])
+            X, Y, B = subsample_arrays_in_x(x_range, X, Y, B)
         ## initialize GridSpec and ObstacleOutlines
         g_s = GridSpec(X, Y)
         o_o = ObstacleOutlines(X, Y, B)
@@ -989,7 +958,7 @@ class NumaRunData:
 
     def animate_devheight_velocity(self, save_file_path=None, figsize=(14,7), uvelo="uvelo",
                           vvelo="vvelo", height='height', cmap='magma', bathy='bathymetry',
-                          interval=200, xmin=None, plot_every=1, t_range=None, clims=None):
+                          interval=200, x_range=None, plot_every=1, t_range=None, clims=None):
         """
         create an animation of NumaCsvData.plot_height_velocity
         """
@@ -1006,15 +975,9 @@ class NumaRunData:
         ob0 = obs_to_plot[0]
         B = getattr(ob0, bathy)
         H = getattr(ob0, height)        
-        if xmin is not None:
-            ind = ob0.x[0,:].searchsorted(xmin)
-            B = B[:,ind:]
-            H = H[:,ind:]
-            X = ob0.x[:,ind:]
-            Y = ob0.y[:,ind:]
-        else:
-            X = ob0.x
-            Y = ob0.y
+        X, Y = ob0.x, ob0.y
+        if x_range is not None:
+            X, Y, H, B = subsample_arrays_in_x(x_range, X, Y, H, B)
         ## calculate still water level
         stillwater = B.copy()
         stillwater[B < 0] = 0
@@ -1029,8 +992,9 @@ class NumaRunData:
         ax = plt.subplot(111)
         ax = add_topo_contours(ax, o_o)
         ## quiver legend set; get handle and make colorbar
-        P, Q = ob0.plot_devheight_velocity(ax_instance=ax, xmin=xmin, plot_every=plot_every, 
-            stillwater=stillwater, clims=clims, cmap=cmap)
+        P, Q = ob0.plot_devheight_velocity(ax_instance=ax, x_range=x_range, plot_every=plot_every,
+            stillwater=stillwater, clims=clims, cmap=cmap,
+            height=height, bathy=bathy, uvelo=uvelo, vvelo=vvelo)
         cb = fig.colorbar(P, extend='both')
         cb.set_label("Height above stillwater [m]")
         # create list of drawables to pass to animation
@@ -1038,11 +1002,15 @@ class NumaRunData:
         for i, ob in enumerate(obs_to_plot):
             list_plots.append(ob.plot_devheight_velocity(
                 ax_instance=ax,
-                xmin=xmin,
+                x_range=x_range,
                 plot_every=plot_every,
                 stillwater=stillwater,
                 clims=clims,
-                cmap=cmap
+                cmap=cmap,
+                height=height,
+                bathy=bathy,
+                uvelo=uvelo,
+                vvelo=vvelo
             ))
 
         ## do animation
@@ -1051,7 +1019,7 @@ class NumaRunData:
 
     def animate_height_3D(self, save_file_path=None, figsize=(14,7), stride=1,
                           height='height', cmap='viridis', bathy='bathymetry',
-                          interval=100, xmin=None, t_range=None, regex_string=None):
+                          interval=100, x_range=None, t_range=None, regex_string=None):
         """
         create animation of NumaCsvData.plot_height_3D
         """
@@ -1068,14 +1036,13 @@ class NumaRunData:
         ob0 = obs_to_plot[0]
         H = getattr(ob0, height)
         B = getattr(ob0, bathy)
-        if xmin is not None:
-            ind = ob0.x[0,:].searchsorted(xmin)
-            B = B[:,ind:]
-            H = H[:,ind:]
+        X, Y = ob0.x, ob0.y
+        if x_range is not None:
+            X, Y, H, B = subsample_arrays_in_x(x_range, X, Y, H, B)
         depth = H - B
         clims = (0, np.max(depth))
         fig = ob0.plot_bathy_3D(figsize=figsize, bathy=bathy, 
-                                cmap=None, xmin=xmin, stride=stride)
+                                cmap=None, x_range=x_range, stride=stride)
         fig.suptitle(self.legend_label(regex_string))
         ax = fig.get_axes()[0]
         # create list of drawables to pass to animation
@@ -1088,7 +1055,7 @@ class NumaRunData:
                 bathy=bathy,
                 clims=clims,
                 cmap=cmap,
-                xmin=xmin,
+                x_range=x_range,
                 stride=stride,
                 timestamp=start+i*self.t_restart
             )
@@ -1126,13 +1093,80 @@ class NumaRunData:
         leg = plt.legend(scatterpoints=1)
         leg.legendHandles[0]._sizes = [30]
         return fig
-    
+
+    def get_shear_stress(self, x_coord, y_coord='avg', return_type='max',
+                            x_width=None, filter_outliers=None,
+                         von_karman=0.41, rho_0=1000, z_0=2e-5,
+                            uvelo='uvelo', vvelo='vvelo',
+                            height='height', bathy='bathymetry'):
+        """
+        return the shear stress at (x_coord, y_coord)
+        (if y_coord is average, average along shore)
+        if return_max, return the maximum instantaneous value
+        else return the time average value
+        """
+        tau = []
+        min_tau = []
+        max_tau = []
+        for ob in self.data_obj_list:
+            ind = ob.x[0,:].searchsorted(x_coord)
+            U = getattr(ob, uvelo)
+            V = getattr(ob, vvelo)
+            H = getattr(ob, height)
+            B = getattr(ob, bathy)
+            if y_coord == "avg":
+                ## to do average over area rather than line
+                if x_width is not None:
+                    ind2 = ob.x[0,:].searchsorted(x_coord+x_width)
+                else:
+                    ind2 = ind + 1
+                U = U[:,ind:ind2]
+                V = V[:,ind:ind2]
+                H = H[:,ind:ind2]
+                B = B[:,ind:ind2]
+                ## get average value across domain
+                T, T_critical = calc_bottom_shear_stress(U, V, H, B)
+                ## remove data more than filter_outliers standard deviations from mean
+                if filter_outliers is not None:
+                    T = remove_outliers(T, filter_outliers)
+                if return_type == "timeseries_min_max":
+                    min_T = np.nanmin(T)
+                    max_T = np.nanmax(T)
+                T = np.nanmean(T)
+            ## single y_coord at midpoint of domain
+            else:
+                if y_coord == "mid":
+                    ind_y = int(np.ceil(ob.x.shape[0]/2.))
+                else:
+                    ind_y = ob.y[:,0].searchsorted(y_coord)
+                U = U[ind_y,ind]
+                V = V[ind_y,ind]
+                H = H[ind_y,ind]
+                B = B[ind_y,ind]
+                T, T_critical = calc_bottom_shear_stress(U, V, H, B)
+
+            tau.append(T)
+            if return_type == "timeseries_min_max" and y_coord == 'avg':
+                min_tau.append(min_T)
+                max_tau.append(max_T)
+
+        ## instantaneous max
+        if return_type == 'max':
+            return np.nanmax(tau)
+        ## return the time average value
+        elif return_type == 'mean':
+            return np.mean(tau)
+        elif return_type == 'timeseries':
+            return np.asarray(tau)
+        elif return_type == "timeseries_min_max":
+            return np.asarray((tau, min_tau, max_tau))
+
     def get_kinetic_energy(self, x_coord, y_coord='avg', return_type='max',
                             x_width=None, filter_outliers=None,
                             uvelo='uvelo', vvelo='vvelo',
                             height='height', bathy='bathymetry'):
         """
-        return the kinetic energy at (x_coord, y_coord) 
+        return the kinetic energy at (x_coord, y_coord)
         (if y_coord is average, average along shore)
         if return_max, return the maximum instantaneous value 
         else return the time average value  
@@ -1253,7 +1287,7 @@ class NumaRunData:
                              x_width=None, filter_outliers=None,
                            height='height', bathy='bathymetry'):
         """
-        return the kinetic energy at (x_coord, y_coord) 
+        return the shear stress at (x_coord, y_coord)
         (if y_coord is average, average along shore)
         if return_max, return the maximum instantaneous value 
         else return the time average value  
