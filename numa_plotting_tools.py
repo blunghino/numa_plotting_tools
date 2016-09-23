@@ -228,7 +228,7 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
                                  colormap='plasma', colors=None, markers=None,
                                  y_coord='avg', function="get_kinetic_energy",
                                  ylims=None, xlims=None, semilog_x=False, title="",
-                                 plot_type="timeseries", filter_outliers=None):
+                                 plot_type="timeseries", filter_outliers=None, labels=None):
     """
     call the `function` method of each NumaRunData object in `nrds`
     plot timeseries on one axis and return fig
@@ -245,6 +245,10 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
     ## loop over NumaRunData objects and plot results
     fig = plt.figure(figsize=figsize)
     for i, nrd in enumerate(nrds):
+        ## to normalize sums to deal with different numbers of grid points in different domain sizes
+        if plot_type == 'sum_timeseries':
+            normalization_denominator = nrd.get_initial_condition_total_potential_energy()
+            print(nrd.run_dir_path, normalization_denominator)
         ## set up y_axis data
         if t_f is None:
             y_val = np.arange(0, nrd.t_f, nrd.t_restart)
@@ -256,22 +260,33 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
         ## call function to calc y value
         x_val = getattr(nrd, function)(x_coord, y_coord, plot_type, x_width,
                                        filter_outliers)
-        if plot_type == "timeseries_min_max":
-            plt.plot(x_val[0,ind:ind+n_vals], y_val, color=colors[i],
-                     marker=markers[i], label=nrd.legend_label())
-            plt.plot(x_val[1,ind:ind+n_vals], y_val, '--', color=colors[i])
-            plt.plot(x_val[2,ind:ind+n_vals], y_val, color=colors[i])
-        elif plot_type == "timeseries_max":
-            plt.plot(x_val[2,ind:ind+n_vals], y_val, color=colors[i],
-                     marker=markers[i], label=nrd.legend_label())
+        zorder = 100 - i
+        if labels is not None:
+            label = labels[i]
         else:
-            plt.plot(x_val[ind:ind+n_vals], y_val, color=colors[i],
-                 marker=markers[i], label=nrd.legend_label())
+            label = nrd.legend_label()
+        if plot_type == "timeseries_min_max":
+            plt.plot(x_val[0,ind:ind+n_vals], y_val, zorder=zorder, color=colors[i],
+                     marker=markers[i], label=label)
+            plt.plot(x_val[1,ind:ind+n_vals], y_val, '--', zorder=zorder, color=colors[i])
+            plt.plot(x_val[2,ind:ind+n_vals], y_val, zorder=zorder, color=colors[i])
+        elif plot_type == "timeseries_max":
+            plt.plot(x_val[2,ind:ind+n_vals], y_val, zorder=zorder, color=colors[i],
+                     marker=markers[i], label=label)
+        elif plot_type == "sum_timeseries":
+            x_val = x_val / normalization_denominator
+            plt.plot(x_val[ind:ind+n_vals], y_val, zorder=zorder, color=colors[i],
+                 marker=markers[i], label=label)
+        else:
+            plt.plot(x_val[ind:ind+n_vals], y_val, zorder=zorder, color=colors[i],
+                 marker=markers[i], label=label)
     ## customize figure
+    loc = 'center right'
     if semilog_x:
         plt.xscale('log')
+        loc = 'lower right'
     if show_legend:
-        plt.legend(loc='center right', numpoints=1)
+        plt.legend(loc=loc, numpoints=1)
     if ylims is not None:
         plt.ylim(ylims)
     if xlims is not None:
@@ -281,29 +296,33 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
     plt.title(title)
     return fig
 
-def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend=True,
+def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend='new_axis',
                               markers=None, colors=None, colormap='viridis',
-                              sort_type=int, xlims=None, ylims=None):
+                              sort_type=int, xlims=None, ylims=None, labels=None):
     """
     call the NumaRunData.plot_shore_max method for a list of NumaRunData objects
     plot all lines on one matplotlib.figure.Figure instance
     """
     ## set up color map and markers
     n = len(nrds)
+    ls = "None"
     if colors is None:
         cmap_vals = np.linspace(0, 255, n, dtype=int)
         cmap = plt.get_cmap(colormap)
         colors = [cmap(val) for val in cmap_vals]
     if markers is None:
         markers = 'Hs^Dvo'
-        markers *= int(np.ceil(n/len(marker)))
+        markers *= int(np.ceil(n/len(markers)))
+    elif markers is '-':
+        ls = '-'
+        markers = ["None"] * n
     ## sort input arguments by value
     if sort_type is not None:
         inds = np.argsort([n.get_sort_val('name', sort_type) for n in nrds])
         nrds = np.asarray(nrds)[inds]
     ## initialize figure instance
     fig = plt.figure(figsize=figsize)
-    if show_legend:
+    if show_legend == 'new_axis':
         ax = plt.subplot(121)
     else:
         ax = plt.subplot(111)
@@ -312,6 +331,8 @@ def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend=True,
             figure_instance=fig,
             color=colors[i],
             marker=markers[i],
+            ls=ls,
+            zorder=100-i
         )
     ax.set_ylabel('Time [s]')
     ax.set_xlabel('Max shore position [m]')
@@ -321,17 +342,14 @@ def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend=True,
         ax.set_ylim(top=nrd.t_f)
     if xlims is not None:
         ax.set_xlim(xlims)
-    if show_legend:
-        hands, labs = ax.get_legend_handles_labels()
+    hands, labs = ax.get_legend_handles_labels()
+    if labels is not None:
+        labs = labels
+    if show_legend is 'new_axis':
         fig.legend(hands, labs, loc=5, numpoints=1, ncol=2)
+    elif show_legend:
+        plt.legend(hands, labs, loc='upper left', numpoints=1, ncol=1)        
     return fig
-
-# def plot_Ek_timeseries(nrds, figsize=(10,8), x_range=(0,'end'), xlims=None,
-#                        ylims=None, show_legend=True, markers=None, colors=None,
-#                        colormap='viridis', plot_type='max'):
-#     """
-#     plot kinetic energy at each point in time, specify max/min/avg
-#     """
 
 def subsample_arrays_in_x(x_range, X, *arrays):
     """
@@ -339,7 +357,10 @@ def subsample_arrays_in_x(x_range, X, *arrays):
     filter `X` and all arrays in `*arrays` by range `x_range`
     return list beginning with `X` and followed by all arrays in ` *arrays`
     """
-    min_x = X[0,:].searchsorted(x_range[0])
+    if x_range[0] == 'beginning':
+        min_x = 0
+    else:
+        min_x = X[0,:].searchsorted(x_range[0])
     if x_range[1] == 'end':
         max_x = -1
     else:
@@ -622,7 +643,7 @@ class NumaCsvData:
         X, Y = self.x, self.y
         if x_range is not None:
             X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
-        Ek = 0.5 * (H - B) * (U**2 + V**2)
+        Ek = 0.25 * (H - B) * (U**2 + V**2)
         fig = plt.figure(figsize=figsize)
         plt.pcolormesh(X, Y, Ek, cmap=cmap)
         cbar = plt.colorbar()
@@ -645,8 +666,8 @@ class NumaCsvData:
         if x_range is not None:
             X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
         g = 9.81
-        Ek = 0.5 * (H - B) * (U**2 + V**2)
-        Ep = g * H
+        Ek = 0.25 * (H - B) * (U**2 + V**2)
+        Ep = 0.5 * g * (H-B)**2
         E = Ek + Ep
         fig = plt.figure(figsize=figsize)
         plt.pcolormesh(X, Y, E, cmap=cmap)
@@ -924,6 +945,22 @@ class NumaRunData:
                 print("No match found for regex_string")
                 raise e
 
+    def get_initial_condition_total_potential_energy(self, x_range=["beginning", 0],
+                                                     height="height", bathy="bathymetry",
+                                                     gravity=9.81):
+        """
+        return the sum of the potential energy values at each offshore grid point
+        """
+        ncd0 = self.data_obj_list[0]
+        H = getattr(ncd0, height)
+        B = getattr(ncd0, bathy)
+        X = ncd0.x
+        Y = ncd0.y
+        depth = H - B
+        subsample_arrays_in_x(x_range, X, depth)
+        Ep = 0.5 * gravity * depth**2
+        return np.sum(Ep)
+
     def animate_velocity_streamlines(self, save_file_path=None, figsize=(14,7), uvelo="uvelo",
                           vvelo="vvelo", cmap='plasma', bathy='bathymetry', arrowsize=1,
                           interval=200, x_range=None, density=1, t_range=None, clims=None):
@@ -1125,7 +1162,7 @@ class NumaRunData:
             V = getattr(ob, vvelo)
             H = getattr(ob, height)
             B = getattr(ob, bathy)
-            E = 0.5 * (H - B) * (U**2 + V**2)
+            E = 0.25 * (H - B) * (U**2 + V**2)
             ind = np.argmax(E)
             energy.append(E.flatten()[ind])
             distance.append(ob.x.flatten()[ind])
@@ -1161,7 +1198,7 @@ class NumaRunData:
             B = getattr(ob, bathy)
             if x_range is not None:
                 U, V, H, B = subsample_arrays_in_x(x_range, X, U, V, H, B)[1:]
-            E = 0.5 * (H - B) * (U**2 + V**2)
+            E = 0.25 * (H - B) * (U**2 + V**2)
             if plot_type == 'Mean':
                 energy[i,:] = np.mean(E, axis=0)
             elif plot_type == 'Max':
@@ -1172,7 +1209,7 @@ class NumaRunData:
         else:
             plt.pcolormesh(x, time, energy[1:,1:], cmap=cmap)
         cbar = plt.colorbar()
-        cbar.set_label("{} kinetic energy [m^2/s^2]".format(plot_type))
+        cbar.set_label("{} kinetic energy [m^3/s^2]".format(plot_type))
         plt.ylabel('time [s]')
         plt.xlabel('x location [m]')
         return fig
@@ -1286,8 +1323,9 @@ class NumaRunData:
         """
         return the kinetic energy at (x_coord, y_coord)
         (if y_coord is average, average along shore)
-        if return_max, return the maximum instantaneous value 
+        if return_type == max, return the maximum instantaneous value 
         else return the time average value  
+        also can return timeseries of max or mean values
         """
         energy = []
         min_energy = []
@@ -1313,10 +1351,16 @@ class NumaRunData:
                 ## remove data more than filter_outliers standard deviations from mean
                 if filter_outliers is not None:
                     E = remove_outliers(E, filter_outliers)
+                ## record min and max as well as mean
                 if return_type[:11] == "timeseries_":
                     min_E = np.nanmin(E)
                     max_E = np.nanmax(E)
-                E = np.mean(E)
+                ## calc the total kinetic energy
+                if return_type == 'sum_timeseries':
+                    E = np.sum(E)
+                ## calc the mean kinetic energy
+                else:
+                    E = np.mean(E)
 
             else:
                 if y_coord == "mid":
@@ -1327,9 +1371,10 @@ class NumaRunData:
                 V = V[ind_y,ind]
                 H = H[ind_y,ind]
                 B = B[ind_y,ind]
-                E = 0.5 * (H-B) * (U**2+V**2)
+                E = 0.25 * (H-B) * (U**2+V**2)
 
             energy.append(E)
+            ## record min and max as well as mean
             if return_type[:11] == "timeseries_" and y_coord == 'avg':
                 min_energy.append(min_E)
                 max_energy.append(max_E)
@@ -1340,7 +1385,7 @@ class NumaRunData:
         ## return the time average value
         elif return_type == 'mean':
             return np.mean(energy)
-        elif return_type == 'timeseries':
+        elif return_type == 'timeseries' or return_type == 'sum_timeseries':
             return np.asarray(energy)
         elif return_type[:11] == "timeseries_":
             return np.asarray((energy, min_energy, max_energy))
@@ -1463,16 +1508,18 @@ class NumaRunData:
             figure_instance=None,
             color='k',
             marker='.',
+            ls="None",
+            zorder=2,
             regex_string=None
     ):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
         try:
-            p = plt.plot(self.shore_max, self.t, c=color, marker=marker,
-                 figure=figure_instance, ls="None", mew=0)[0]
+            p = plt.plot(self.shore_max, self.t, c=color, marker=marker, zorder=zorder,
+                 figure=figure_instance, ls=ls, mew=0)[0]
         ## big ugly hack to get around https://github.com/scikit-learn/scikit-learn/issues/5040
         except ValueError:
-            p = plt.scatter(self.shore_max, self.t, c=color)
+            p = plt.scatter(self.shore_max, self.t, c=color, zorder=zorder)
         #     filtr = np.logical_not(np.isnan(self.shore_max))
         #     shore_max = self.shore_max[filtr]
         #     t = self.t[filtr]
