@@ -13,6 +13,7 @@ from matplotlib.colors import LogNorm
 import matplotlib.animation
 import matplotlib as mpl
 import scipy.interpolate
+import scipy.fftpack
 
 ## set font to times new roman
 mpl.rcParams['font.family'] = 'serif'
@@ -588,6 +589,59 @@ class NumaCsvData:
         """
         return np.loadtxt(csv_file_path, skiprows=1)
 
+    def get_free_surface_slice(self, y_ind, x_range, height='height'):
+        """
+        return the x values and water height along a transect
+        """
+        X, H = subsample_arrays_in_x(x_range, self.x, getattr(self, height))
+        return X[y_ind,:], H[y_ind,:]
+
+    def get_wavelength_spectrum(self, height="height"):
+        """
+        return the wavelength spectrum and frequencies
+        """
+        ## get spacing for interpolation
+        x = self.x[0,:]
+        dx = np.min(np.diff(x))
+        xi = np.arange(np.min(x), np.max(x), dx)
+        n = len(xi)
+        ## get frequencies
+        freq = scipy.fftpack.rfftfreq(n, d=dx)
+        ## interpolate height to regular grid
+        H = getattr(self, height)
+        m = H.shape[0]
+        Hi = np.zeros((m,n))
+        ## apply interpolation for each row
+        for i in range(m):
+            f = scipy.interpolate.interp1d(x, H[i,:])
+            Hi[i,:] = f(xi)
+        ## compute spectrum along each crossshore transect
+        S_all = scipy.fftpack.rfft(Hi, axis=1)
+        ## sum into one spectrum
+        S = np.mean(S_all, axis=0)
+        return S, freq
+
+    def plot_wavelength_spectrum(self, figsize=(12,9), xlims=None, ylims=None,
+                                 return_line=False, logscale=False):
+        """
+        plot wavelength spectrum
+        """
+        S, freq = self.get_wavelength_spectrum()
+        ## new figure and axis
+        fig = plt.figure(figsize=figsize)
+        plt.xlim(xlims)
+        plt.ylim(ylims)
+        plt.xlabel('Wavenumber [1/m]')
+        plt.ylabel('||')
+        if logscale:
+            p = plt.semilogy(freq, S)[0]
+        else:
+            p = plt.plot(freq, S)[0]
+        if return_line:
+            return fig, p
+        else:
+            return fig
+
     def plot_velocity(self, figsize=(12,7), uvelo='uvelo', vvelo='vvelo'):
         """
         quiver plot of velocities
@@ -1120,6 +1174,85 @@ class NumaRunData:
         subsample_arrays_in_x(x_range, X, depth)
         Ep = potential_energy(depth)
         return np.mean(Ep)
+
+    def animate_free_surface_slice(self, x_range=("beginning", "end"),
+                                   save_file_path=None,
+                                   t_range=None, y_ind="mid",
+                                   figsize=(12,8), interval=300):
+        """
+        create an animation of the evolution of the wavelength spectrum through time
+        """
+        if save_file_path is None:
+            save_file_path = self.run_dir_path + '_free_surface_slice.mp4'
+        obs_to_plot = self.data_obj_list
+        ## t_range is a tuple containing 2 indices into a self.data_obj_list
+        if t_range is not None:
+            start, end = t_range
+            if start <= end and start >= 0:
+                obs_to_plot = obs_to_plot[start:end]
+        ob0 = obs_to_plot[0]
+        ## find midpoint idx
+        if y_ind is "mid":
+            y_ind = np.floor(ob0.y.shape[0]/2)
+        ## get bathy profile
+        B = getattr(ob0, "bathymetry")
+        X, B = subsample_arrays_in_x(x_range, ob0.x, B)
+        b = B[y_ind,:]
+        ## get initial data
+        x, h = ob0.get_free_surface_slice(y_ind, x_range)
+        fig = plt.figure(figsize=figsize)
+        plt.plot(x, b, 'k')
+        line = plt.plot(x, h)[0]
+        plt.xlabel('x [m]')
+        plt.ylabel('h [m]')
+        plt.title(self.name)
+
+        def animate(ob):
+            x, h = ob.get_free_surface_slice(y_ind, x_range)
+            line.set_ydata(h)
+            return line,
+
+        def init():
+            line.set_ydata(np.ma.array(x, mask=True))
+            return line,
+        ## do animation
+        ani = mpl.animation.FuncAnimation(fig, animate, obs_to_plot, init_func=init,
+                                          blit=True, interval=interval)
+        ani.save(save_file_path, dpi=300)
+
+
+    def animate_wavelength_spectrum(self, save_file_path=None, interval=300,
+                                    t_range=None, figsize=(12,9), logscale=False,
+                                    xlims=None, ylims=None):
+        """
+        create an animation of the evolution of the wavelength spectrum through time
+        """
+        if save_file_path is None:
+            save_file_path = self.run_dir_path + '_wavelength_spectrum.mp4'
+        obs_to_plot = self.data_obj_list
+        ## t_range is a tuple containing 2 indices into a self.data_obj_list
+        if t_range is not None:
+            start, end = t_range
+            if start <= end and start >= 0:
+                obs_to_plot = obs_to_plot[start:end]
+        ob0 = obs_to_plot[0]
+        _, freq = ob0.get_wavelength_spectrum()
+        fig, line = ob0.plot_wavelength_spectrum(xlims=xlims, ylims=ylims,
+                                                 figsize=figsize,
+                                                 return_line=True, logscale=logscale)
+        def animate(ob):
+            S, freq = ob.get_wavelength_spectrum()
+            line.set_ydata(S)
+            return line,
+
+        def init():
+            line.set_ydata(np.ma.array(freq, mask=True))
+            return line,
+
+        ## do animation
+        ani = mpl.animation.FuncAnimation(fig, animate, obs_to_plot, init_func=init,
+                                          blit=True, interval=interval)
+        ani.save(save_file_path, dpi=300)
 
     def animate_velocity_streamlines(self, save_file_path=None, figsize=(14,7), uvelo="uvelo",
                           vvelo="vvelo", cmap='plasma', bathy='bathymetry', arrowsize=1,
