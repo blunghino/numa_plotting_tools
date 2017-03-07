@@ -596,6 +596,29 @@ class NumaCsvData:
         X, H = subsample_arrays_in_x(x_range, self.x, getattr(self, height))
         return X[y_ind,:], H[y_ind,:]
 
+    def plot_free_surface_slice(self, y_ind="mid", x_range=("beginning", "end"),
+                                figsize=(12,8), title=None):
+        """
+        plot a slice of the free surface through y_ind
+        """
+        ## find midpoint idx
+        if y_ind is "mid":
+            y_ind = np.floor(self.y.shape[0]/2)
+        ## get bathy profile
+        B = getattr(self, "bathymetry")
+        H = getattr(self, "height")
+        X, B, H = subsample_arrays_in_x(x_range, self.x, B, H)
+        fig = plt.figure(figsize=figsize)
+        plt.plot(X[y_ind,:], B[y_ind,:], 'k')
+        plt.plot(X[y_ind,:], H[y_ind,:], 'b')
+        plt.xlabel('x [m]')
+        plt.ylabel('h [m]')
+        if title is None:
+            plt.title(self.csv_file_path)
+        else:
+            plt.title(title)
+        return fig
+
     def get_wavelength_spectrum(self, height="height"):
         """
         return the wavelength spectrum and frequencies
@@ -1196,15 +1219,18 @@ class NumaRunData:
             y_ind = np.floor(ob0.y.shape[0]/2)
         ## get bathy profile
         B = getattr(ob0, "bathymetry")
+        max_B = np.max(B[y_ind,:])
         X, B = subsample_arrays_in_x(x_range, ob0.x, B)
         b = B[y_ind,:]
         ## get initial data
         x, h = ob0.get_free_surface_slice(y_ind, x_range)
         fig = plt.figure(figsize=figsize)
         plt.plot(x, b, 'k')
+        plt.plot(x, b, 'kx')
         line = plt.plot(x, h)[0]
         plt.xlabel('x [m]')
         plt.ylabel('h [m]')
+        plt.ylim(top=max_B)
         plt.title(self.name)
 
         def animate(ob):
@@ -1931,3 +1957,35 @@ class NumaRunData:
             self.t_restart,
             self.run_dir_path
         )
+
+def load_nrds(run_dirs, from_pickle=1, regex_string='h-\d+'):
+    """
+    function to be used in data processing script to load in a set of NumaRunData objects
+    can load the data from .pkl files (DEFAULT)
+    OR  can load the data from a directory of .csv files
+        - this option SAVES a .pkl for faster future loads
+    returns a list of NumaRunData objects
+    """
+    nrds = []
+    ## initialize objects from csv files
+    if not from_pickle:
+        ## load all data into list of NumaRunData objects
+        for rd in run_dirs:
+            try:
+                nrd = NumaRunData(t_f, t_restart, rd,
+                                      regex_string=regex_string,
+                                      load_csv_data=True, unstructured=False)
+                ## save to pickle file
+                saveobj(nrd, rd)
+                nrds.append(nrd)
+            except FileNotFoundError as e:
+                print(e)
+    ## load object list from pickle file
+    else:
+        for rd in run_dirs:
+            try:
+                nrds.append(openobj(rd))
+            except FileNotFoundError as e:
+                print(e)
+    return nrds
+commit 08f7904ca37416113d7ab43ffc36be7722d70470
