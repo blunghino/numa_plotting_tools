@@ -585,7 +585,7 @@ class NumaCsvData:
 
     def _load_csv_data(self, csv_file_path):
         """
-        load csv data using numpy
+        load csv data
         """
         return np.loadtxt(csv_file_path, skiprows=1)
 
@@ -1073,7 +1073,8 @@ class NumaRunData:
             load_csv_data=True,
             regex_string=None,
             sort_val=None,
-            unstructured=False
+            unstructured=False,
+            suffix='',
     ):
         self.t_f = t_f
         self.t_restart = t_restart
@@ -1095,8 +1096,8 @@ class NumaRunData:
         self.n_outputs = int(t_f / t_restart)
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
-            csv_file_names = ['{}_{:03d}.csv'.format(
-                csv_file_root, i) for i in range(self.n_outputs)]
+            csv_file_names = ['{}_{}_{:04d}.csv'.format(
+                csv_file_root, suffix, i) for i in range(self.n_outputs)]
             self.data_obj_list = self._load_numa_csv_data(csv_file_names,
                                                           unstructured=unstructured)
         self.t, \
@@ -1988,4 +1989,4 @@ def load_nrds(run_dirs, from_pickle=1, regex_string='h-\d+'):
             except FileNotFoundError as e:
                 print(e)
     return nrds
-commit 08f7904ca37416113d7ab43ffc36be7722d70470
+# commit 08f7904ca37416113d7ab43ffc36be7722d70470
