@@ -554,15 +554,14 @@ class NumaCsvData:
                 temp = getattr(self, att).reshape((self.nely,self.nelx))
                 setattr(self, att, temp)
             ## create velo_mag attribute for velocity magnitude
-            # try:
-            #     u = getattr(self, 'uvelo')
-            #     v = getattr(self, 'vvelo')
-            #     setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
-            #     setattr(self, 'kinetic_energy', )
-            # except AttributeError as e:
-            #     print(e)
-            #     raise warnings.warning(
-            #         "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
+            try:
+                u = getattr(self, 'uvelo')
+                v = getattr(self, 'vvelo')
+                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+            except AttributeError as e:
+                print(e)
+                raise warnings.warning(
+                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
         else:
             ## can't detect x and/or y coord data
             raise warnings.warning(
@@ -587,7 +586,25 @@ class NumaCsvData:
         """
         load csv data
         """
-        return np.loadtxt(csv_file_path, skiprows=1)
+        # return np.loadtxt(csv_file_path, skiprows=1)
+        big_list = []
+        with open(csv_file_path, 'r') as file:
+            rdr = csv.reader(file)
+            ## skip header row
+            next(rdr)
+            for row in rdr:
+                small_list = []
+                for r in row[0].strip().split(' '):
+                    if r:
+                        try:
+                            small_list.append(float(r))
+                        except ValueError:
+                            small_list.append(0.)
+                big_list.append(small_list)
+        m = len(big_list)
+        n = len(big_list[0])
+        return np.asarray(big_list).reshape(m,n)
+
 
     def get_free_surface_slice(self, y_ind, x_range, height='height'):
         """
@@ -1130,29 +1147,33 @@ class NumaRunData:
         shore_mean = []
         shore_std = []
         shore_file_path = os.path.join(self.run_dir_path, shore_file_name)
-        with open(shore_file_path, 'r') as file:
-            for i, r in enumerate(file):
-                r = r.strip().lstrip().split()
-                ## bug workaround, some files were written with the mean value
-                ## wrapping onto a second row... in that case we only get the max
-                try:
-                    shore_max.append(float(r[1]))
-                    t.append(float(r[0]))
-                except IndexError:
-                    continue
-                try:
-                    shore_mean.append(float(r[3]))
-                    shore_min.append(float(r[2]))
+        try:
+            with open(shore_file_path, 'r') as file:
+                for i, r in enumerate(file):
+                    r = r.strip().lstrip().split()
+                    ## bug workaround, some files were written with the mean value
+                    ## wrapping onto a second row... in that case we only get the max
                     try:
-                        shore_std.append(np.sqrt(float(r[4])))
+                        shore_max.append(float(r[1]))
+                        t.append(float(r[0]))
                     except IndexError:
-                        shore_std.append(np.nan)
-                except IndexError:
-                    pass
-                ## sometimes appends '*******' == NaN?
-                except ValueError:
-                    shore_mean.append(np.nan)
-                    shore_min.append(np.nan)
+                        continue
+                    try:
+                        shore_mean.append(float(r[3]))
+                        shore_min.append(float(r[2]))
+                        try:
+                            shore_std.append(np.sqrt(float(r[4])))
+                        except IndexError:
+                            shore_std.append(np.nan)
+                    except IndexError:
+                        pass
+                    ## sometimes appends '*******' == NaN?
+                    except ValueError:
+                        shore_mean.append(np.nan)
+                        shore_min.append(np.nan)
+        except FileNotFoundError as e:
+            print("NumaRunData.__init__: Shore data file not found")
+            print(e)
 
         return (np.asarray(t), np.asarray(shore_max), np.asarray(shore_min),
                 np.asarray(shore_mean), np.asarray(shore_std))
