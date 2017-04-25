@@ -30,6 +30,7 @@ def interp_to_mesh(fine_x, fine_y, nrd, ind=None, att='height'):
         z = z.flatten()
         x = ob.x.flatten()
         y = ob.y.flatten()
+        print(nrd.run_dir_path)
         zi = scipy.interpolate.griddata((x,y), z, (fine_x, fine_y))
         zi_list.append(zi.reshape(shapef))
     return zi_list
@@ -157,4 +158,3 @@ def plot_error_norms_with_h(h_vals, nrds, ind=0, att="velo_mag", xlims=None, bas
     plt.xlabel("1/h")
     plt.ylabel("Error norm")
     return fig
-

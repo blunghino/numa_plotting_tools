@@ -56,19 +56,29 @@ def openobj(path):
             bytes_in += f_in.read(max_bytes)
     return pickle.loads(bytes_in)
 
-def potential_energy(depth, g=9.81):
+def potential_energy(depth, g=9.8):
     """
-    potential energy in m^3/s^2
-    E_p = rho * A * h * g * (h/2)
+    potential energy in J
+    E_p = rho * g * h * A * (h/2)
     """
     return 0.5 * g * depth**2
+    # return g * depth
 
 def kinetic_energy(depth, u_velo, v_velo):
     """
-    kinetic energy in m^3/s^2
-    E_k = rho * A * v^2 * (h/2)
+    kinetic energy in J
+    E_k = rho * v^2 * A * (h/2)
     """
     return 0.25 * depth * (u_velo**2 + v_velo**2)
+    # return 0.5 * (u_velo**2 + v_velo**2)
+
+def integrate_over_grid(X, Y, Z):
+    """
+    integrate `Z` defined at all grid points 
+    over the X and Y values of the grid
+    """
+    int_x = np.trapz(Z, X, axis=1)
+    return np.trapz(int_x, Y[:,0])
 
 def get_run_dirs(dir_prefix="failed_"):
     """
@@ -457,7 +467,8 @@ def plot_runup_distribution_timeseries(nrd, figsize=(12,8), title=None):
     return fig
 
 def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvelo',
-                            height='height', bathy='bathymetry', title=None):
+                            height='height', bathy='bathymetry', title=None, 
+                            include_Ek=True, semilog=True):
     """
     for one nrd, plot Ek, Ep, and total energy through time
     """
@@ -475,13 +486,21 @@ def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvel
         depth = H - B
         Ek = kinetic_energy(depth, U, V)
         Ep = potential_energy(depth)
-        potential[i] = np.sum(Ep)
-        kinetic[i] = np.sum(Ek)
-    plt.semilogy(t, potential, 'b-', label='Potential')
-    plt.semilogy(t, kinetic, 'r-', label='Kinetic')
-    plt.semilogy(t, potential+kinetic, 'k-', label='Total')
+        potential[i] = integrate_over_grid(ob.x, ob.y, Ep)
+        kinetic[i] = integrate_over_grid(ob.x, ob.y, Ek)
+    if semilog:
+        plt.semilogy(t, potential, 'b-', label='Potential')
+        plt.semilogy(t, potential+kinetic, 'k-', label='Total')
+        if include_Ek:
+            plt.semilogy(t, kinetic, 'r-', label='Kinetic')
+    else:
+        plt.plot(t, potential, 'b-', label='Potential')
+        plt.plot(t, potential+kinetic, 'k-', label='Total')
+        if include_Ek:
+            plt.plot(t, kinetic, 'r-', label='Kinetic')
+
     plt.xlabel("Time [s]")
-    plt.ylabel("Energy [m^3/s^2]")
+    plt.ylabel("Energy [J]")
     plt.legend(loc='center right')
     if title is not None:
         plt.title(title)
@@ -889,11 +908,11 @@ class NumaCsvData:
         X, Y = self.x, self.y
         if x_range is not None:
             X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
-        Ek = 0.25 * (H - B) * (U**2 + V**2)
+        Ek = kinetic_energy(H-B, U, V)
         fig = plt.figure(figsize=figsize)
         plt.pcolormesh(X, Y, Ek, cmap=cmap)
         cbar = plt.colorbar()
-        cbar.set_label('Kinetic Energy [m^2/s^2]')
+        cbar.set_label('Kinetic Energy [J]')
         plt.xlabel('x [m]')
         plt.ylabel('y [m]')
         return fig
@@ -911,9 +930,9 @@ class NumaCsvData:
         X, Y = self.x, self.y
         if x_range is not None:
             X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
-        g = 9.81
-        Ek = 0.25 * (H - B) * (U**2 + V**2)
-        Ep = 0.5 * g * (H-B)**2
+        # g = 9.81
+        Ek = kinetic_energy(H-B, U, V)
+        Ep = potential_energy(H-B)
         E = Ek + Ep
         fig = plt.figure(figsize=figsize)
         plt.pcolormesh(X, Y, E, cmap=cmap)
@@ -1113,8 +1132,8 @@ class NumaRunData:
         self.n_outputs = int(t_f / t_restart)
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
-            csv_file_names = ['{}_{}_{:04d}.csv'.format(
-                csv_file_root, suffix, i) for i in range(self.n_outputs)]
+            csv_file_names = ['{}_{:03d}.csv'.format(
+                csv_file_root, i) for i in range(self.n_outputs)]
             self.data_obj_list = self._load_numa_csv_data(csv_file_names,
                                                           unstructured=unstructured)
         self.t, \
@@ -1218,7 +1237,7 @@ class NumaRunData:
         depth = H - B
         subsample_arrays_in_x(x_range, X, depth)
         Ep = potential_energy(depth)
-        return np.mean(Ep)
+        return integrate_over_grid(ncd0.x, ncd0.y, Ep)
 
     def animate_free_surface_slice(self, x_range=("beginning", "end"),
                                    save_file_path=None,
@@ -1503,7 +1522,7 @@ class NumaRunData:
             V = getattr(ob, vvelo)
             H = getattr(ob, height)
             B = getattr(ob, bathy)
-            E = 0.25 * (H - B) * (U**2 + V**2)
+            E = kinetic_energy(H-B, U, V)
             ind = np.argmax(E)
             energy.append(E.flatten()[ind])
             distance.append(ob.x.flatten()[ind])
@@ -1539,7 +1558,7 @@ class NumaRunData:
             B = getattr(ob, bathy)
             if x_range is not None:
                 U, V, H, B = subsample_arrays_in_x(x_range, X, U, V, H, B)[1:]
-            E = 0.25 * (H - B) * (U**2 + V**2)
+            E = kinetic_energy(H-B, U, V)
             if plot_type == 'Mean':
                 energy[i,:] = np.mean(E, axis=0)
             elif plot_type == 'Max':
@@ -1550,7 +1569,7 @@ class NumaRunData:
         else:
             plt.pcolormesh(x, time, energy[1:,1:], cmap=cmap)
         cbar = plt.colorbar()
-        cbar.set_label("{} kinetic energy [m^3/s^2]".format(plot_type))
+        cbar.set_label("{} kinetic energy [J]".format(plot_type))
         plt.ylabel('time [s]')
         plt.xlabel('x location [m]')
         return fig
@@ -1698,10 +1717,10 @@ class NumaRunData:
                     max_E = np.nanmax(E)
                 ## calc the total kinetic energy
                 if return_type == 'sum_timeseries':
-                    E = np.sum(E)
+                    E = integrate_over_grid(ob.x, ob.y, E)
                 ## calc the mean kinetic energy
                 else:
-                    E = np.mean(E)
+                    E = integrate_over_grid(ob.x, ob.y, E) / (ob.x[-1,-1] * ob.y[-1,-1])
 
             else:
                 if y_coord == "mid":
@@ -1980,7 +1999,7 @@ class NumaRunData:
             self.run_dir_path
         )
 
-def load_nrds(run_dirs, from_pickle=1, regex_string='h-\d+'):
+def load_nrds(run_dirs, from_pickle=1, regex_string='h-\d+', t_f=None, t_restart=None):
     """
     function to be used in data processing script to load in a set of NumaRunData objects
     can load the data from .pkl files (DEFAULT)
