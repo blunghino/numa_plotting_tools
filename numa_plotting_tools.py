@@ -56,21 +56,22 @@ def openobj(path):
             bytes_in += f_in.read(max_bytes)
     return pickle.loads(bytes_in)
 
-def potential_energy(depth, g=9.8):
+def potential_energy(depth, rho=1, g=9.80616):
     """
     potential energy in J
-    E_p = rho * g * h * A * (h/2)
+    E_p = rho * g * h * A * h
     """
-    return 0.5 * g * depth**2
-    # return g * depth
+    return 0.5 * rho * g * depth**2
+    # return 0.5 * g * depth**2
 
-def kinetic_energy(depth, u_velo, v_velo):
+def kinetic_energy(depth, u_velo, v_velo, rho=1):
     """
     kinetic energy in J
-    E_k = rho * v^2 * A * (h/2)
+    E_k = rho * v^2 * A * h
     """
-    return 0.25 * depth * (u_velo**2 + v_velo**2)
-    # return 0.5 * (u_velo**2 + v_velo**2)
+    return 0.5 * rho * depth * (u_velo**2 + v_velo**2)
+    # return 0.5 * depth**3 * (u_velo**2 + v_velo**2)
+    # return 0.25 * depth * (u_velo**2 + v_velo**2)
 
 def integrate_over_grid(X, Y, Z):
     """
@@ -322,9 +323,10 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
     fig = plt.figure(figsize=figsize)
     for i, nrd in enumerate(nrds):
         ## to normalize sums to deal with different numbers of grid points in different domain sizes
-        if plot_type == 'sum_timeseries':
+        if function == "get_kinetic_energy":
             normalization_denominator = nrd.get_initial_condition_total_potential_energy()
-            # print(normalization_denominator)
+        else:
+            normalization_denominator = 1
         ## set up y_axis data
         if t_f is None:
             y_val = np.arange(0, nrd.t_f, nrd.t_restart)
@@ -447,6 +449,31 @@ def pcolor_timeseries_spacing_runup(nrds, spacings, wavelength=2000,
     plt.pcolor(x, y, z, cmap=cmap)
     return fig
 
+def plot_velocity_slice_timeseries(nrd, slice_idx=None, figsize=(9,5),
+                                   uvelo='uvelo'):
+    # n = len(nrd.data_obj_list)
+    t = np.arange(0, nrd.t_f, nrd.t_restart)
+    figs = []
+    ## for each timestep calculate the total Ep and Ek in the domain
+    for i, ob in enumerate(nrd.data_obj_list):
+        if not i % 4:
+            fig = plt.figure(figsize=figsize)
+            # velo = ob.get_velocity('all', 0, 'timeseries')
+            if slice_idx is None:
+                slice_idx = np.floor(ob.y.shape[0]/2)
+            ## get velocity profile
+            U = getattr(ob, uvelo)
+            plt.plot(ob.x[slice_idx,:], U[slice_idx,:], 'k', lw=2.5)
+            plt.title('t = {:.02f}, y = {:.02f}'.format(t[i], ob.y[slice_idx,0]))
+            plt.xlabel('x [m]')
+            plt.ylabel('u velocity [m/s]')
+            plt.axis('equal')
+            plt.xlim([0,70])
+            plt.ylim([0,40])
+            plt.grid(True)
+            figs.append(fig)
+    return figs 
+
 def plot_runup_distribution_timeseries(nrd, figsize=(12,8), title=None):
     """
     plot run up, max runup, min runup, and std on one axis
@@ -468,12 +495,18 @@ def plot_runup_distribution_timeseries(nrd, figsize=(12,8), title=None):
 
 def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvelo',
                             height='height', bathy='bathymetry', title=None, 
-                            include_Ek=True, semilog=True):
+                            include_Ek=True, semilog=True, normalize=False):
     """
     for one nrd, plot Ek, Ep, and total energy through time
     """
+    if normalize:
+        normalization_denominator = nrd.get_initial_condition_total_potential_energy()
+        y_label = "Energy / Initial Potential Energy []"
+    else:
+        normalization_denominator = 1
+        y_label = "Energy [J]"
     n = len(nrd.data_obj_list)
-    t = np.arange(0, nrd.t_f, nrd.t_restart)
+    t = np.arange(0, nrd.t_f + nrd.t_restart, nrd.t_restart)
     potential = np.zeros(n)
     kinetic = np.zeros(n)
     fig = plt.figure(figsize=figsize)
@@ -486,8 +519,8 @@ def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvel
         depth = H - B
         Ek = kinetic_energy(depth, U, V)
         Ep = potential_energy(depth)
-        potential[i] = integrate_over_grid(ob.x, ob.y, Ep)
-        kinetic[i] = integrate_over_grid(ob.x, ob.y, Ek)
+        potential[i] = integrate_over_grid(ob.x, ob.y, Ep) / normalization_denominator
+        kinetic[i] = integrate_over_grid(ob.x, ob.y, Ek) / normalization_denominator
     if semilog:
         plt.semilogy(t, potential, 'b-', label='Potential')
         plt.semilogy(t, potential+kinetic, 'k-', label='Total')
@@ -500,8 +533,39 @@ def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvel
             plt.plot(t, kinetic, 'r-', label='Kinetic')
 
     plt.xlabel("Time [s]")
-    plt.ylabel("Energy [J]")
+    plt.ylabel(y_label)
     plt.legend(loc='center right')
+    if title is not None:
+        plt.title(title)
+    return fig
+
+def plot_total_volume_timeseries(nrd, figsize=(12,8), normalize=False,
+                    height='height', bathy='bathymetry', title=None):
+    """
+    for one nrd, plot volume through time
+    """
+    if normalize:
+        normalization_denominator = nrd.get_initial_condition_total_volume()
+        y_label = "Volume / Initial Volume []"
+    else:
+        normalization_denominator = 1
+        y_label = "Volume [m^3]"
+    n = len(nrd.data_obj_list)
+    t = np.arange(0, nrd.t_f, nrd.t_restart)
+    volume = np.zeros(n)
+    # volume2 = np.zeros(n)
+    fig = plt.figure(figsize=figsize)
+    ## for each timestep calculate the total Ep and Ek in the domain
+    for i, ob in enumerate(nrd.data_obj_list):
+        H = getattr(ob, height)
+        B = getattr(ob, bathy)
+        depth = H - B
+        volume[i] = integrate_over_grid(ob.x, ob.y, depth) / normalization_denominator
+        # volume2[i] = integrate_over_grid(ob.x, ob.y, depth**2)
+    plt.plot(t, volume, 'b-', label='Volume')
+    # plt.plot(t, volume2)
+    plt.xlabel("Time [s]")
+    plt.ylabel(y_label)
     if title is not None:
         plt.title(title)
     return fig
@@ -574,13 +638,16 @@ class NumaCsvData:
                 setattr(self, att, temp)
             ## create velo_mag attribute for velocity magnitude
             try:
-                u = getattr(self, 'uvelo')
-                v = getattr(self, 'vvelo')
-                setattr(self, 'velo_mag', np.sqrt(u**2 + v**2))
+                U = getattr(self, 'uvelo')
+                V = getattr(self, 'vvelo')
+                H = getattr(self, 'height')
+                ## correct for depth averaged velocity
+                U *= H
+                V *= H 
             except AttributeError as e:
                 print(e)
                 raise warnings.warning(
-                    "unable to calculate velo_mag: couldn't find uvelo and/or vvelo")
+                    "unable to correct depth averaged velocity: couldn't find one of uvelo, vvelo, height")
         else:
             ## can't detect x and/or y coord data
             raise warnings.warning(
@@ -1129,7 +1196,7 @@ class NumaRunData:
         ## value on which to sort in a sequence of NumaRunData objects
         self.sort_val = sort_val
         ## number of NumaCsvData files associated with object
-        self.n_outputs = int(t_f / t_restart)
+        self.n_outputs = int(np.floor(t_f / t_restart)) + 1
         if load_csv_data:
             csv_file_root = os.path.split(run_dir_path)[1]
             csv_file_names = ['{}_{:03d}.csv'.format(
@@ -1235,9 +1302,24 @@ class NumaRunData:
         B = getattr(ncd0, bathy)
         X = ncd0.x
         depth = H - B
-        subsample_arrays_in_x(x_range, X, depth)
+        if x_range is not None:
+            subsample_arrays_in_x(x_range, X, depth)
         Ep = potential_energy(depth)
         return integrate_over_grid(ncd0.x, ncd0.y, Ep)
+
+    def get_initial_condition_total_volume(self, x_range=None,
+                                          height="height", bathy="bathymetry"):
+        """
+        return the sum of the potential energy values at each offshore grid point
+        """
+        ncd0 = self.data_obj_list[0]
+        H = getattr(ncd0, height)
+        B = getattr(ncd0, bathy)
+        X = ncd0.x
+        depth = H - B
+        if x_range is not None:
+            subsample_arrays_in_x(x_range, X, depth)
+        return integrate_over_grid(ncd0.x, ncd0.y, depth)
 
     def animate_free_surface_slice(self, x_range=("beginning", "end"),
                                    save_file_path=None,
