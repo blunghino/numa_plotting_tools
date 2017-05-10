@@ -14,6 +14,7 @@ import matplotlib.animation
 import matplotlib as mpl
 import scipy.interpolate
 import scipy.fftpack
+import scipy.spatial.qhull
 
 ## set font to times new roman
 mpl.rcParams['font.family'] = 'serif'
@@ -107,10 +108,11 @@ class ObstacleOutlines:
     """
     class to hold obstacle outline data
     """
-    def __init__(self, X, Y, B, x_range=(0,300)):
+    def __init__(self, X, Y, B, x_range=(0,300), threshold=0.99):
         """
         use bathy to find obstacle base contours using constant slope of domain
         """
+        self.threshold = threshold
         self.X = X
         self.Y = Y
         ## get a bathy with no hills
@@ -122,26 +124,32 @@ class ObstacleOutlines:
         sub_B = B[filtr]
         ## interpolate
         shp = X.shape
-        S = scipy.interpolate.griddata(
-            (sub_X.flatten(), sub_Y.flatten()),
-            sub_B.flatten(),
-            (X.flatten(), Y.flatten())
-        )
-        S = S.reshape(shp)
+        try:
+            S = scipy.interpolate.griddata(
+                (sub_X.flatten(), sub_Y.flatten()),
+                sub_B.flatten(),
+                (X.flatten(), Y.flatten())
+            )
+            S = S.reshape(shp)
+        ## this error happens when there is no slope?
+        except scipy.spatial.qhull.QhullError:
+            S = np.zeros(shp)
         ## get obstacles
         O = B - S
         ## get rid of small deviations from 0
-        O[O < .99] = 0
+        O[O <= threshold] = 0
         self.outlines = O
         
 
 def add_topo_contours(ax, o_o, ls="-", color="darkslategray", lw=2):
     """
     add shoreline and obstacle contours to the plot
+
+    o_o is an ObstacleOutlines object
     """
     ax.axvline(0, linestyle=ls, linewidth=lw, color=color, zorder=100)
-    ax.contour(o_o.X, o_o.Y, o_o.outlines, [1], linestyles=ls, 
-        linewidths=lw, colors=color, zorder=101)
+    ax.contour(o_o.X, o_o.Y, o_o.outlines, [o_o.threshold], linestyles=ls, 
+               linewidths=lw, colors=color, zorder=101)
     return ax
 
 class GridSpec:
@@ -800,8 +808,16 @@ class NumaCsvData:
         H = getattr(self, height)
         B = getattr(self, bathy)
         fig = plt.figure(figsize=figsize)
+        ax = plt.subplot(111)
+        plt.axis('equal')
+        ob_ol = ObstacleOutlines(self.x, self.y, B, threshold=1e-3)
+        ax = add_topo_contours(ax, ob_ol, color='DarkOrange')
         plt.pcolormesh(self.x, self.y, H-B, cmap='viridis')
-        plt.colorbar()
+        cb = plt.colorbar()
+        cb.set_label('Depth [m]')
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        plt.grid(True)
         return fig
 
     def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
