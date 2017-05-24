@@ -17,8 +17,8 @@ import scipy.fftpack
 import scipy.spatial.qhull
 
 ## set font to times new roman
-mpl.rcParams['font.family'] = 'serif'
-mpl.rcParams['font.serif'] = 'Times New Roman'
+# mpl.rcParams['font.family'] = 'serif'
+# mpl.rcParams['font.serif'] = 'Times New Roman'
 
 def saveobj(obj, path):
     """
@@ -63,7 +63,6 @@ def potential_energy(depth, rho=1, g=9.80616):
     E_p = rho * g * h * A * h
     """
     return 0.5 * rho * g * depth**2
-    # return 0.5 * g * depth**2
 
 def kinetic_energy(depth, u_velo, v_velo, rho=1):
     """
@@ -71,8 +70,6 @@ def kinetic_energy(depth, u_velo, v_velo, rho=1):
     E_k = rho * v^2 * A * h
     """
     return 0.5 * rho * depth * (u_velo**2 + v_velo**2)
-    # return 0.5 * depth**3 * (u_velo**2 + v_velo**2)
-    # return 0.25 * depth * (u_velo**2 + v_velo**2)
 
 def integrate_over_grid(X, Y, Z):
     """
@@ -141,13 +138,14 @@ class ObstacleOutlines:
         self.outlines = O
         
 
-def add_topo_contours(ax, o_o, ls="-", color="darkslategray", lw=2):
+def add_topo_contours(ax, o_o, ls="-", color="darkslategray", lw=2, shoreline=True):
     """
     add shoreline and obstacle contours to the plot
 
     o_o is an ObstacleOutlines object
     """
-    ax.axvline(0, linestyle=ls, linewidth=lw, color=color, zorder=100)
+    if shoreline:
+        ax.axvline(0, linestyle=ls, linewidth=lw, color=color, zorder=100)
     ax.contour(o_o.X, o_o.Y, o_o.outlines, [o_o.threshold], linestyles=ls, 
                linewidths=lw, colors=color, zorder=101)
     return ax
@@ -180,6 +178,25 @@ def remove_outliers(array, n_stds):
     mn = array.mean()
     std = array.std()
     return array[np.abs(array) <= mn + n_stds*std]
+
+def subsample_arrays_in_x(x_range, X, *arrays):
+    """
+    given x-coordinates `X` and a range of values to subsample `x_range`
+    filter `X` and all arrays in `*arrays` by range `x_range`
+    return list beginning with `X` and followed by all arrays in ` *arrays`
+    """
+    if x_range[0] == 'beginning':
+        min_x = 0
+    else:
+        min_x = X[0,:].searchsorted(x_range[0])
+    if x_range[1] == 'end':
+        max_x = -1
+    else:
+        max_x = X[0,:].searchsorted(x_range[1])
+    out = [X[:,min_x:max_x]]
+    for arr in arrays:
+        out.append(arr[:,min_x:max_x])
+    return out
 
 def plot_function_val_spacing(nrds, x_coord, y_coord="avg", plot_type='max',
                                 spacing='dist', function="get_kinetic_energy",
@@ -384,7 +401,8 @@ def plot_function_val_timeseries(nrds, x_coord, x_width=None, x_label="[]",
 
 def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend='new_axis',
                               markers=None, colors=None, colormap='viridis',
-                              sort_type=int, xlims=None, ylims=None, labels=None):
+                              sort_type=None, xlims=None, ylims=None, labels=None,
+                              plot_shore_mean=False):
     """
     call the NumaRunData.plot_shore_max method for a list of NumaRunData objects
     plot all lines on one matplotlib.figure.Figure instance
@@ -413,15 +431,27 @@ def plot_shore_max_timeseries(nrds, figsize=(18,8), show_legend='new_axis',
     else:
         ax = plt.subplot(111)
     for i, nrd in enumerate(nrds):
-        fig = nrd.plot_shore_max_timeseries(
-            figure_instance=fig,
-            color=colors[i],
-            marker=markers[i],
-            ls=ls,
-            zorder=100-i
-        )
+        ## to plot the MEAN instead of the MAX
+        if plot_shore_mean:
+            fig = nrd.plot_shore_mean_timeseries(
+                figure_instance=fig,
+                color=colors[i],
+                marker=markers[i],
+                ls=ls,
+                zorder=100-i
+            )
+            x_label = 'Mean shore position [m]'
+        else:
+            fig = nrd.plot_shore_max_timeseries(
+                figure_instance=fig,
+                color=colors[i],
+                marker=markers[i],
+                ls=ls,
+                zorder=100-i
+            )
+            x_label = 'Max shore position [m]'
     ax.set_ylabel('Time [s]')
-    ax.set_xlabel('Max shore position [m]')
+    ax.set_xlabel(x_label)
     if ylims is not None:
         ax.set_ylim(ylims)
     else:
@@ -457,12 +487,53 @@ def pcolor_timeseries_spacing_runup(nrds, spacings, wavelength=2000,
     plt.pcolor(x, y, z, cmap=cmap)
     return fig
 
+def surface_snapshot_max_runup(nrd, x_range=(0,'end')):
+    """
+    snapshot of free surface at the time of max runup 
+    """
+    t = np.arange(0, nrd.t_f+nrd.t_restart, nrd.t_restart)
+    max_idx = np.argmax(nrd.shore_max)
+    t_max = nrd.t[max_idx]
+    ru_max = nrd.shore_max[max_idx]
+    t_idx = t.searchsorted(t_max)
+    ob = nrd.data_obj_list[t_idx]
+    fig = ob.plot_depth(x_range=x_range, title="Max Runup = {:.1f}, t = {:.1f}".format(ru_max, t[t_idx]))
+    return fig 
+
+def Ek_snapshot_max_Ek(nrd, x_range=(60,"end"), zlims=None, t_min=0):
+    """
+    snapshot of Ek at the time of max Ek 
+    """
+    t = np.arange(0, nrd.t_f+nrd.t_restart, nrd.t_restart)
+    min_idx = t.searchsorted(t_min)
+    kinetic = np.zeros_like(t[min_idx:])
+    for j, ob in enumerate(nrd.data_obj_list[min_idx:]):
+        x = ob.x 
+        y = ob.y 
+        U = getattr(ob, "uvelo")
+        V = getattr(ob, "vvelo")
+        H = getattr(ob, "height")
+        B = getattr(ob, "bathymetry")
+        depth = H - B
+        ## to look at only a subrange
+        if x_range is not None:
+            x, y, depth, U, V = subsample_arrays_in_x(x_range, x, y, depth, U, V)
+        Ek = kinetic_energy(depth, U, V)
+        kinetic[j] = integrate_over_grid(x, y, Ek)
+    max_idx = np.argmax(kinetic) + min_idx
+    ## nrd relative
+    Ek_max = kinetic[max_idx-min_idx] / nrd.get_initial_condition_total_potential_energy()
+    ob = nrd.data_obj_list[max_idx]
+    fig = ob.plot_kinetic_energy(x_range=x_range, zlims=zlims,
+                  title="Max E_k = {:.1f}, t = {:.1f}".format(Ek_max, t[max_idx]))
+    return fig 
+
 def plot_velocity_slice_timeseries(nrd, slice_idx=None, figsize=(9,5),
                                    uvelo='uvelo'):
     # n = len(nrd.data_obj_list)
-    t = np.arange(0, nrd.t_f, nrd.t_restart)
+    t = np.arange(0, nrd.t_f+nrd.t_restart, nrd.t_restart)
     figs = []
-    ## for each timestep calculate the total Ep and Ek in the domain
+    ## for each timestep calculate the velocity 
     for i, ob in enumerate(nrd.data_obj_list):
         if not i % 4:
             fig = plt.figure(figsize=figsize)
@@ -477,10 +548,57 @@ def plot_velocity_slice_timeseries(nrd, slice_idx=None, figsize=(9,5),
             plt.ylabel('u velocity [m/s]')
             plt.axis('equal')
             plt.xlim([0,70])
-            plt.ylim([0,40])
+            plt.ylim([0,10])
             plt.grid(True)
             figs.append(fig)
     return figs 
+
+def plot_energy_slice(nrds, slice_idx=None, time=7, figsize=(17,5), normalize=True):
+    """
+    figure showing mean Kinetic and Potential energy along a crossshore transect
+    normalize by values from first nrd in nrds 
+    """
+    t = np.arange(0, nrds[0].t_f + nrds[0].t_restart, nrds[0].t_restart) 
+    ## time we are interested in
+    idx = t.searchsorted(time)
+    ## x vector
+    x = nrds[0].data_obj_list[idx].x[0,:]
+    fig = plt.figure(figsize=figsize)
+    ax_ep = plt.subplot(121)
+    plt.title("Alongshore Mean of Potential Energy; t = {:.01f} s".format(time))
+    ax_ek = plt.subplot(122)
+    plt.title("Alongshore Mean of Kinetic Energy; t = {:.01f} s".format(time))
+    if normalize:
+        Ep_norm = -1
+        Ek_norm = -1
+        y_label_ek = r"$E_K / \max(E_{K, no hill})$ [ ]"
+        y_label_ep = r"$E_P / \max(E_{P, no hill})$ [ ]"
+    ## don't normalize
+    else:
+        Ep_norm = 1
+        Ek_norm = 1
+        y_label_ep = r"$E_P$ [J/m]"
+        y_label_ek = r"$E_K$ [J/m]"
+    for i, nrd in enumerate(nrds):
+        ob = nrd.data_obj_list[idx]
+        U = getattr(ob, 'uvelo')
+        V = getattr(ob, 'vvelo')
+        depth = getattr(ob, 'height') - getattr(ob, 'bathymetry')
+        Ep = np.mean(potential_energy(depth), axis=0)
+        Ek = np.mean(kinetic_energy(depth, U, V), axis=0)
+        ## normalize by maximum
+        if Ep_norm == -1 and Ek_norm == -1:
+            Ep_norm = np.max(Ep)
+            Ek_norm = np.max(Ek)
+        ax_ep.plot(x, Ep / Ep_norm, label=nrd.name.replace('h', ' h'), zorder=20-i)
+        ax_ek.plot(x, Ek / Ek_norm, label=nrd.name.replace('h', ' h'), zorder=20-i)
+    ax_ep.set_ylabel(y_label_ep)
+    ax_ek.set_ylabel(y_label_ek)
+    ax_ek.set_xlabel('x [m]')
+    ax_ep.set_xlabel('x [m]')
+    ax_ep.legend()
+    ax_ek.legend()
+    return fig 
 
 def plot_runup_distribution_timeseries(nrd, figsize=(12,8), title=None):
     """
@@ -501,7 +619,158 @@ def plot_runup_distribution_timeseries(nrd, figsize=(12,8), title=None):
         plt.title(title)
     return fig
 
-def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvelo',
+def scatter_max_runup(nrds_groups, x_val_groups, labels, x_label="", figsize=(8,6)):
+    """
+    scatter plot of max runup distance for each nrd, against x_vals
+    """
+    fig = plt.figure(figsize=figsize)
+    for i, nrds in enumerate(nrds_groups):
+        max_runups = []
+        for nrd in nrds:
+            max_runups.append(np.max(nrd.shore_max))
+        plt.scatter(x_val_groups[i], max_runups, label=labels[i])
+    plt.xlabel(x_label)
+    plt.ylabel("Max Runup [m]")
+    plt.legend()
+    return fig 
+
+def scatter_max_runup_percent_change(x_val_groups, nrds_groups, nrds_relative, 
+                                     labels, x_label="", figsize=(8,6), monocolor=False):
+    """
+    scatter plot of max runup distance for each nrd, against x_vals
+    """
+    fig = plt.figure(figsize=figsize)
+    for i, nrds in enumerate(nrds_groups):
+        ru_rel = np.max(nrds_relative[i].shore_max)
+        max_runups = []
+        for nrd in nrds:
+            max_runups.append(100 * np.max(nrd.shore_max) / ru_rel)
+        if monocolor:
+            hand = plt.scatter(x_val_groups[i], max_runups, color='k')
+        else:
+            plt.scatter(x_val_groups[i], max_runups, label=labels[i])
+    plt.xlabel(x_label)
+    plt.ylabel("Max Runup [% change]")
+    if monocolor:
+        plt.legend([hand], [labels[i]])
+    else:
+        plt.legend()
+    return fig 
+
+def plot_energy_timeseries_subplots(nrds, labels, colors, figsize=(7,10), x_range=None, 
+                                    semilog=False, normalize=True, title=""):
+    """
+    figure with three subplots: timeseries of Ep, Ek and E_total
+    each plot has data from each NumaRunData object in `nrds`
+    """
+    n = len(nrds[1].data_obj_list)
+    t = np.arange(0, nrds[1].t_f + nrds[1].t_restart, nrds[1].t_restart)
+    fig = plt.figure(figsize=figsize)
+    ax1 = plt.subplot(311)
+    ax2 = plt.subplot(312)
+    ax3 = plt.subplot(313)
+    for i, nrd in enumerate(nrds):
+        if normalize:
+            normalization_denominator = nrd.get_initial_condition_total_potential_energy()
+            y_label = "{} Energy / Initial Potential Energy [ ]"
+        else:
+            normalization_denominator = 1
+            y_label = "{} Energy per unit depth [J/m]"
+        potential = np.zeros(n)
+        kinetic = np.zeros(n)
+        ## get data at each timestep
+        for j, ob in enumerate(nrd.data_obj_list):
+            x = ob.x 
+            y = ob.y 
+            U = getattr(ob, "uvelo")
+            V = getattr(ob, "vvelo")
+            H = getattr(ob, "height")
+            B = getattr(ob, "bathymetry")
+            depth = H - B
+            if x_range is not None:
+                x, y, depth, U, V = subsample_arrays_in_x(x_range, x, y, depth, U, V)
+            Ek = kinetic_energy(depth, U, V)
+            Ep = potential_energy(depth)
+            try:
+                potential[j] = integrate_over_grid(x, y, Ep) / normalization_denominator
+                kinetic[j] = integrate_over_grid(x, y, Ek) / normalization_denominator
+            ## for timeseries that aren't all the same length
+            except IndexError:
+                break
+        ## add data from a single nrd to the plot
+        if semilog:
+            ax1.semilogy(t, potential, label=labels[i], color=colors[i], zorder=50-i)
+            ax2.semilogy(t, kinetic, label=labels[i], color=colors[i], zorder=50-i)
+            ax3.semilogy(t, potential + kinetic, label=labels[i], color=colors[i], zorder=50-i)
+        else:
+            ax1.plot(t, potential, label=labels[i], color=colors[i], zorder=50-i)
+            ax2.plot(t, kinetic, label=labels[i], color=colors[i], zorder=50-i)
+            ax3.plot(t, potential + kinetic, label=labels[i], color=colors[i], zorder=50-i)
+    plt.subplot(311)
+    plt.legend()
+    plt.title(title)
+    ax1.set_ylabel(y_label.format("Potential"))
+    ax2.set_ylabel(y_label.format("Kinetic"))
+    ax3.set_ylabel(y_label.format("Total"))
+    ax3.set_xlabel('Time [s]')
+    return fig 
+
+def plot_Ek_timeseries(nrds, labels, colors, figsize=(9,5), x_range=None, 
+                       t_min=0, semilog=False, normalize=True, title=""):
+    """
+    figure showing Ek timeseries data from each NumaRunData object in `nrds`
+    """
+    Ek_str = r"$E_k$"
+    Ep_str = r"$E_{p,t=0}$"
+    n = len(nrds[1].data_obj_list)
+    t = np.arange(0, nrds[1].t_f + nrds[1].t_restart, nrds[1].t_restart)
+    ## to crop beginning of timeseries
+    if t_min:
+        min_idx = t.searchsorted(t_min)
+        t = t[min_idx:]
+    else:
+        min_idx = 0
+    fig = plt.figure(figsize=figsize)
+    ax = plt.subplot(111)
+    for i, nrd in enumerate(nrds):
+        if normalize:
+            normalization_denominator = nrd.get_initial_condition_total_potential_energy()
+            y_label = "{} / {} [ ]".format(Ek_str, Ep_str)
+        else:
+            normalization_denominator = 1
+            y_label = "{} per unit depth [J/m]"
+        kinetic = np.zeros(t.shape, dtype=float)
+        ## get data at each timestep
+        for j, ob in enumerate(nrd.data_obj_list[min_idx:]):
+            x = ob.x 
+            y = ob.y 
+            U = getattr(ob, "uvelo")
+            V = getattr(ob, "vvelo")
+            H = getattr(ob, "height")
+            B = getattr(ob, "bathymetry")
+            depth = H - B
+            ## to look at only a subrange
+            if x_range is not None:
+                x, y, depth, U, V = subsample_arrays_in_x(x_range, x, y, depth, U, V)
+            Ek = kinetic_energy(depth, U, V)
+            try:
+                kinetic[j] = integrate_over_grid(x, y, Ek) / normalization_denominator
+            ## for timeseries that aren't all the same length
+            except IndexError:
+                break
+        ## add data from a single nrd to the plot
+        if semilog:
+            ax.semilogy(t, kinetic, label=labels[i], color=colors[i], zorder=50-i)
+        else:
+            ax.plot(t, kinetic, label=labels[i], color=colors[i], zorder=50-i)
+    plt.legend()
+    plt.title(title)
+    ax.set_ylabel(y_label)
+    ax.set_xlabel('Time [s]')
+    return fig 
+
+def plot_total_energy_timeseries(nrd, figsize=(12,8), x_range=None,
+                            uvelo='uvelo', vvelo='vvelo',
                             height='height', bathy='bathymetry', title=None, 
                             include_Ek=True, semilog=True, normalize=False):
     """
@@ -520,15 +789,19 @@ def plot_total_energy_timeseries(nrd, figsize=(12,8), uvelo='uvelo', vvelo='vvel
     fig = plt.figure(figsize=figsize)
     ## for each timestep calculate the total Ep and Ek in the domain
     for i, ob in enumerate(nrd.data_obj_list):
+        x = ob.x 
+        y = ob.y 
         U = getattr(ob, uvelo)
         V = getattr(ob, vvelo)
         H = getattr(ob, height)
         B = getattr(ob, bathy)
         depth = H - B
+        if x_range is not None:
+            x, y, depth, U, V = subsample_arrays_in_x(x_range, x, y, depth, U, V)
         Ek = kinetic_energy(depth, U, V)
         Ep = potential_energy(depth)
-        potential[i] = integrate_over_grid(ob.x, ob.y, Ep) / normalization_denominator
-        kinetic[i] = integrate_over_grid(ob.x, ob.y, Ek) / normalization_denominator
+        potential[i] = integrate_over_grid(x, y, Ep) / normalization_denominator
+        kinetic[i] = integrate_over_grid(x, y, Ek) / normalization_denominator
     if semilog:
         plt.semilogy(t, potential, 'b-', label='Potential')
         plt.semilogy(t, potential+kinetic, 'k-', label='Total')
@@ -559,7 +832,7 @@ def plot_total_volume_timeseries(nrd, figsize=(12,8), normalize=False,
         normalization_denominator = 1
         y_label = "Volume [m^3]"
     n = len(nrd.data_obj_list)
-    t = np.arange(0, nrd.t_f, nrd.t_restart)
+    t = np.arange(0, nrd.t_f + nrd.t_restart, nrd.t_restart)
     volume = np.zeros(n)
     # volume2 = np.zeros(n)
     fig = plt.figure(figsize=figsize)
@@ -577,25 +850,6 @@ def plot_total_volume_timeseries(nrd, figsize=(12,8), normalize=False,
     if title is not None:
         plt.title(title)
     return fig
-
-def subsample_arrays_in_x(x_range, X, *arrays):
-    """
-    given x-coordinates `X` and a range of values to subsample `x_range`
-    filter `X` and all arrays in `*arrays` by range `x_range`
-    return list beginning with `X` and followed by all arrays in ` *arrays`
-    """
-    if x_range[0] == 'beginning':
-        min_x = 0
-    else:
-        min_x = X[0,:].searchsorted(x_range[0])
-    if x_range[1] == 'end':
-        max_x = -1
-    else:
-        max_x = X[0,:].searchsorted(x_range[1])
-    out = [X[:,min_x:max_x]]
-    for arr in arrays:
-        out.append(arr[:,min_x:max_x])
-    return out
 
 def calc_bottom_shear_stress(U, V, H, B,
                              von_karman=0.41, nu=1.36e-6, D_50=2e-4,
@@ -782,28 +1036,22 @@ class NumaCsvData:
         """
         U = getattr(self, uvelo)
         V = getattr(self, vvelo)
+        B = getattr(self, 'bathymetry')
         fig = plt.figure(figsize=figsize)
-        plt.quiver(self.x, self.y, U, V)
-        return fig
-
-    def plot_height(self, figsize=(12,7), height='height', title=None):
-        """
-        pcolormesh plot of height
-        """
-        H = getattr(self, height)
-        fig = plt.figure(figsize=figsize)
-        plt.pcolormesh(self.x, self.y, H, cmap='viridis')
-        plt.xlabel("x [m]")
-        plt.ylabel("y [m]")
-        if title is not None:
-            plt.title(title)
+        ax = plt.subplot(111)
+        plt.axis('equal')
+        ob_ol = ObstacleOutlines(self.x, self.y, B, threshold=1e-3)
+        ax = add_topo_contours(ax, ob_ol, color='DarkOrange')
+        plt.pcolormesh(self.x, self.y, np.sqrt(U**2 + V**2), cmap='viridis')
         cb = plt.colorbar()
-        cb.set_label("h [m]")
+        cb.set_label('velocity magnitude [m/s]')
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')        
         return fig
 
-    def plot_depth(self, figsize=(12,7), height='height', bathy='bathymetry'):
+    def plot_height(self, figsize=(12,7), height='height', bathy='bathymetry'):
         """
-        pcolormesh plot of water depth
+        pcolormesh plot of water height 
         """
         H = getattr(self, height)
         B = getattr(self, bathy)
@@ -812,12 +1060,40 @@ class NumaCsvData:
         plt.axis('equal')
         ob_ol = ObstacleOutlines(self.x, self.y, B, threshold=1e-3)
         ax = add_topo_contours(ax, ob_ol, color='DarkOrange')
-        plt.pcolormesh(self.x, self.y, H-B, cmap='viridis')
+        plt.pcolormesh(self.x, self.y, H, cmap='viridis')
         cb = plt.colorbar()
-        cb.set_label('Depth [m]')
+        cb.set_label('height [m]')
         plt.xlabel('x [m]')
         plt.ylabel('y [m]')
-        plt.grid(True)
+        return fig
+
+    def plot_depth(self, figsize=(10,4), height='height', bathy='bathymetry', 
+                   title="", x_range=None, threshold=1e-2):
+        """
+        pcolormesh plot of water depth
+        """
+        H = getattr(self, height)
+        B = getattr(self, bathy)
+        X = self.x
+        Y = self.y 
+        ob_ol = ObstacleOutlines(X, Y, B, threshold=threshold)
+        if x_range is not None:
+            X, Y, H, B = subsample_arrays_in_x(x_range, X, Y, H, B)
+        min_x = np.min(X[0,:])
+        max_x = np.max(X[0,:])
+        fig = plt.figure(figsize=figsize)
+        ax = plt.subplot(111)
+        cmap = plt.cm.viridis
+        cmap.set_under('w')
+        pcm = ax.pcolormesh(X, Y, H - B, cmap=cmap, vmin=threshold)
+        ax = add_topo_contours(ax, ob_ol, color='DarkOrange', shoreline=False)
+        cb = plt.colorbar(pcm)
+        cb.set_label('Depth [m]')
+        if title:
+            plt.title(title)
+        plt.xlabel('x [m]')
+        plt.ylabel('y [m]')
+        plt.xlim([min_x, max_x])
         return fig
 
     def plot_depth_velocity(self, figsize=(12,7), height='height', plot_every=1,
@@ -978,9 +1254,9 @@ class NumaCsvData:
         plt.title(self.csv_file_path)
         return fig
 
-    def plot_kinetic_energy(self, figsize=(12,7), cmap='plasma', x_range=None,
+    def plot_kinetic_energy(self, figsize=(10,4), cmap='plasma', x_range=None,
                             uvelo='uvelo', vvelo='vvelo', height='height',
-                            bathy='bathymetry'):
+                            bathy='bathymetry', title="", zlims=None):
         """
         pcolormesh plot of kinetic energy
         """
@@ -989,15 +1265,25 @@ class NumaCsvData:
         H = getattr(self, height)
         B = getattr(self, bathy)
         X, Y = self.x, self.y
+        obstacle_outlines = ObstacleOutlines(X, Y, B)
         if x_range is not None:
             X, Y, U, V, H, B = subsample_arrays_in_x(x_range, X, Y, U, V, H, B)
+        min_x = np.min(X[0,:])
+        max_x = np.max(X[0,:])
         Ek = kinetic_energy(H-B, U, V)
         fig = plt.figure(figsize=figsize)
-        plt.pcolormesh(X, Y, Ek, cmap=cmap)
-        cbar = plt.colorbar()
-        cbar.set_label('Kinetic Energy [J]')
+        ax = plt.subplot(111)
+        if zlims is None:
+            zlims = (np.nanmin(Ek), np.nanmax(Ek))
+        pcm = ax.pcolormesh(X, Y, Ek, cmap=cmap, norm=LogNorm(), vmin=zlims[0], vmax=zlims[1])
+        ax = add_topo_contours(ax, obstacle_outlines)
+        cbar = plt.colorbar(pcm)
+        cbar.set_label('Kinetic Energy [J/m]')
+        if title:
+            plt.title(title)
         plt.xlabel('x [m]')
         plt.ylabel('y [m]')
+        plt.xlim([min_x, max_x])
         return fig
 
     def plot_energy(self, figsize=(12,7), cmap='viridis', x_range=None,
@@ -2054,16 +2340,8 @@ class NumaRunData:
         interval = np.ceil(n / n_samples)
         return pos[idx_min:-1:interval]
 
-    def plot_shore_max_timeseries(
-            self,
-            figsize=(12,7),
-            figure_instance=None,
-            color='k',
-            marker='.',
-            ls="None",
-            zorder=2,
-            regex_string=None
-    ):
+    def plot_shore_max_timeseries( self, figsize=(12,7), figure_instance=None, color='k', 
+                                    marker='.', ls="None", zorder=2, regex_string=None):
         if figure_instance is None:
             figure_instance = plt.figure(figsize=figsize)
         try:
@@ -2072,20 +2350,19 @@ class NumaRunData:
         ## big ugly hack to get around https://github.com/scikit-learn/scikit-learn/issues/5040
         except ValueError:
             p = plt.scatter(self.shore_max, self.t, c=color, zorder=zorder)
-        #     filtr = np.logical_not(np.isnan(self.shore_max))
-        #     shore_max = self.shore_max[filtr]
-        #     t = self.t[filtr]
-        #     try:
-        #         fig_temp = plt.figure("temp")
-        #         plt.plot(shore_max, t)
-        #         plt.close("temp")
-        #     except ValueError:
-        #         pass
-        #     ## set current figure back to the one you want
-        #     plt.figure(figure_instance.number)
-        #     p = plt.plot(shore_max, t, c=color, marker=marker,
-        #                  ls="None", mew=0)[0]
+        p.set_label(self.legend_label(regex_string=regex_string))
+        return figure_instance
 
+    def plot_shore_mean_timeseries( self, figsize=(12,7), figure_instance=None, color='k', 
+                                    marker='.', ls="None", zorder=2, regex_string=None):
+        if figure_instance is None:
+            figure_instance = plt.figure(figsize=figsize)
+        try:
+            p = plt.plot(self.shore_mean, self.t, c=color, marker=marker,
+                         zorder=zorder, figure=figure_instance, ls=ls, mew=0)[0]
+        ## big ugly hack to get around https://github.com/scikit-learn/scikit-learn/issues/5040
+        except ValueError:
+            p = plt.scatter(self.shore_mean, self.t, c=color, zorder=zorder)
         p.set_label(self.legend_label(regex_string=regex_string))
         return figure_instance
 
@@ -2127,4 +2404,3 @@ def load_nrds(run_dirs, from_pickle=1, regex_string='h-\d+', t_f=None, t_restart
             except FileNotFoundError as e:
                 print(e)
     return nrds
-# commit 08f7904ca37416113d7ab43ffc36be7722d70470
